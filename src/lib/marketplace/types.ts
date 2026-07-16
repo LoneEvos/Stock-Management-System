@@ -45,19 +45,30 @@ export type MarketplaceEvent =
       occurred_at?: string;
     }
   | {
-      /** Pembatalan — perilaku BERBEDA sebelum vs sesudah kirim (lihat ingest.ts). */
+      /**
+       * Pembatalan — perilaku BERBEDA sebelum vs sesudah kirim (lihat ingest.ts).
+       * `lines` opsional = pembatalan PARSIAL per item (Phase 2): hanya baris
+       * tersebut yang dibatalkan; tanpa `lines` = seluruh pesanan.
+       */
       type: "ORDER_CANCELLED";
       channel: MarketplaceChannel;
       marketplace_order_id: string;
       reason?: string;
+      lines?: ListingLine[];
       occurred_at?: string;
     }
   | {
-      /** Pembeli mengajukan retur; barang mulai perjalanan kembali. */
+      /**
+       * Pembeli mengajukan retur; barang mulai perjalanan kembali.
+       * `lines` opsional = retur PARSIAL per item (Phase 2). Retur sebagian
+       * dari bundle dikirim sebagai SKU produk satuan — dihitung per produk
+       * satuan, bukan seluruh bundle (keputusan klien #4).
+       */
       type: "RETURN_CREATED";
       channel: MarketplaceChannel;
       marketplace_order_id: string;
       reason?: string;
+      lines?: ListingLine[];
       occurred_at?: string;
     }
   | {

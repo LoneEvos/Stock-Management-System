@@ -127,6 +127,41 @@ export async function simReturnCreate(
   return res;
 }
 
+/**
+ * Retur PARSIAL (Phase 2 #4): meretur 1 unit dari produk satuan pertama
+ * pesanan — bundle dihitung per produk satuan, bukan seluruh bundle.
+ */
+export async function simReturnPartial(
+  channel: MarketplaceChannel,
+  marketplaceOrderId: string
+): Promise<IngestResult> {
+  const operator = await requireOperator();
+  const [item] = await sql`
+    select p.sku
+    from order_items oi
+    join orders o on o.id = oi.order_id
+    join products p on p.id = oi.product_id
+    where o.channel = ${channel} and o.marketplace_order_id = ${marketplaceOrderId}
+    order by oi.qty desc
+    limit 1
+  `;
+  if (!item)
+    return { ok: false, message: "Pesanan tidak punya item untuk diretur." };
+  const res = await ingestEvent(
+    {
+      type: "RETURN_CREATED",
+      channel,
+      marketplace_order_id: marketplaceOrderId,
+      reason: "Retur sebagian (1 unit) — simulasi",
+      lines: [{ listing_sku: item.sku as string, qty: 1 }],
+    },
+    "simulator",
+    operator
+  );
+  refresh();
+  return res;
+}
+
 export async function simReturnReceive(
   channel: MarketplaceChannel,
   marketplaceOrderId: string

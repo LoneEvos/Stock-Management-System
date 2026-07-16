@@ -29,6 +29,7 @@ import {
   simDeliver,
   simNewOrder,
   simReturnCreate,
+  simReturnPartial,
   simReturnReceive,
   simShip,
 } from "./actions";
@@ -315,19 +316,40 @@ export function SimulatorClient({ orders }: { orders: SimOrder[] }) {
                         </>
                       )}
                       {o.status === "DELIVERED" && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={pending}
-                          onClick={() =>
-                            run(() =>
-                              simReturnCreate(o.channel, o.marketplace_order_id)
-                            )
-                          }
-                        >
-                          <RotateCcw className="size-3.5" />
-                          Retur
-                        </Button>
+                        <>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={pending}
+                            onClick={() =>
+                              run(() =>
+                                simReturnCreate(o.channel, o.marketplace_order_id)
+                              )
+                            }
+                          >
+                            <RotateCcw className="size-3.5" />
+                            Retur
+                          </Button>
+                          {o.total_qty > 1 && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={pending}
+                              title="Retur parsial: 1 unit dari 1 produk — bundle dihitung per produk satuan"
+                              onClick={() =>
+                                run(() =>
+                                  simReturnPartial(
+                                    o.channel,
+                                    o.marketplace_order_id
+                                  )
+                                )
+                              }
+                            >
+                              <RotateCcw className="size-3.5" />
+                              Retur Sebagian
+                            </Button>
+                          )}
+                        </>
                       )}
                       {o.has_return_in_transit && (
                         <Button

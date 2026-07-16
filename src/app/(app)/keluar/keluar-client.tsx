@@ -43,18 +43,24 @@ const REASONS = [
   { value: "expired", icon: Timer, hint: "Kedaluwarsa — dikeluarkan" },
 ] as const;
 
+/** Alasan yang WAJIB menyertakan referensi (campaign/approval) — Phase 2. */
+const NEEDS_REFERENCE = ["bonus", "promo", "sample"];
+
 export function KeluarClient({ products }: { products: ProductStockRow[] }) {
   const router = useRouter();
   const [productId, setProductId] = useState("");
   const [qty, setQty] = useState("");
   const [reason, setReason] = useState("");
   const [channel, setChannel] = useState("offline");
+  const [reference, setReference] = useState("");
   const [note, setNote] = useState("");
   const [confirm, setConfirm] = useState(false);
   const [pending, startTransition] = useTransition();
 
   const product = products.find((p) => p.product_id === productId);
-  const valid = productId && Number(qty) > 0 && reason;
+  const needsRef = NEEDS_REFERENCE.includes(reason);
+  const valid =
+    productId && Number(qty) > 0 && reason && (!needsRef || reference.trim());
 
   function submit() {
     startTransition(async () => {
@@ -63,6 +69,7 @@ export function KeluarClient({ products }: { products: ProductStockRow[] }) {
         qty: Number(qty),
         reason,
         channel,
+        reference,
         note,
       });
       setConfirm(false);
@@ -72,6 +79,7 @@ export function KeluarClient({ products }: { products: ProductStockRow[] }) {
         setQty("");
         setReason("");
         setChannel("offline");
+        setReference("");
         setNote("");
         router.refresh();
       } else toast.error(res.message);
@@ -193,6 +201,23 @@ export function KeluarClient({ products }: { products: ProductStockRow[] }) {
             </div>
           </div>
 
+          {needsRef && (
+            <div className="grid gap-2">
+              <Label>
+                Referensi (wajib — nama campaign / catatan approval)
+              </Label>
+              <Input
+                value={reference}
+                onChange={(e) => setReference(e.target.value)}
+                placeholder="Contoh: Giveaway Anniversary Juli, approval Bu Rina…"
+              />
+              <p className="text-xs text-muted-foreground">
+                Bonus/promo/sampel = sumber selisih terbesar — harus bisa
+                dijelaskan ke siapa & kenapa, bukan sekadar tercatat.
+              </p>
+            </div>
+          )}
+
           <div className="grid gap-2">
             <Label>Catatan (opsional)</Label>
             <Textarea
@@ -242,6 +267,20 @@ export function KeluarClient({ products }: { products: ProductStockRow[] }) {
             <p>
               Kanal: <b>{CHANNEL_LABEL[channel]}</b>
             </p>
+            {reference.trim() && (
+              <p>
+                Referensi: <b>{reference.trim()}</b>
+              </p>
+            )}
+            {product && (
+              <p>
+                Dampak stok tersedia:{" "}
+                <b className="font-mono">
+                  {fmtQty(product.available_qty)} →{" "}
+                  {fmtQty(product.available_qty - (Number(qty) || 0))}
+                </b>
+              </p>
+            )}
             <p className="text-xs text-muted-foreground">
               Batch dipilih otomatis — kedaluwarsa terdekat keluar lebih dulu
               (FEFO).

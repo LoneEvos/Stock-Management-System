@@ -25,7 +25,11 @@ export async function lockProduct(
   await tx`select pg_advisory_xact_lock(hashtext(${productId}))`;
 }
 
-/** Saldo sellable per batch sebuah produk — input FEFO. Panggil SETELAH lockProduct. */
+/**
+ * Saldo sellable per batch sebuah produk — input FEFO. Panggil SETELAH
+ * lockProduct. Membaca summary stock_balances (O(1), di-maintain trigger dari
+ * ledger) — bukan SUM full-scan; ledger akan tumbuh jutaan baris (Phase 2).
+ */
 export async function getBatchBalances(
   tx: TransactionSql,
   productId: string
@@ -34,11 +38,11 @@ export async function getBatchBalances(
     select b.id as batch_id,
            b.batch_code,
            b.expiry_date::text as expiry_date,
-           coalesce(sum(l.qty_delta) filter (where l.stock_state = 'SELLABLE'), 0)::int as sellable_qty
+           coalesce(sb.qty, 0)::int as sellable_qty
     from batches b
-    left join stock_ledger l on l.batch_id = b.id
+    left join stock_balances sb
+      on sb.batch_id = b.id and sb.stock_state = 'SELLABLE'
     where b.product_id = ${productId}
-    group by b.id, b.batch_code, b.expiry_date
   `;
   return rows as unknown as BatchBalance[];
 }
@@ -63,6 +67,7 @@ export async function insertEntries(
         ref_id: e.ref_id,
         operator: e.operator,
         note: e.note,
+        reference: e.reference ?? null,
         correction_of: e.correction_of ?? null,
         created_at: e.created_at ?? new Date().toISOString(),
       }))

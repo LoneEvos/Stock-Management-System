@@ -43,8 +43,9 @@ export default async function DashboardPage() {
   const [stats] = await sql`
     select
       (select count(*)::int from products where is_active) as active_products,
-      (select coalesce(sum(qty_delta), 0)::int from stock_ledger where stock_state = 'SELLABLE') as sellable_units,
-      (select coalesce(sum(qty_delta), 0)::int from stock_ledger where stock_state = 'DAMAGED') as damaged_units,
+      (select coalesce(sum(qty), 0)::int from stock_balances where stock_state = 'SELLABLE') as sellable_units,
+      (select coalesce(sum(ri.qty), 0)::int from return_items ri where ri.condition = 'DAMAGED') as damaged_return_units,
+      (select coalesce(sum(ri.qty), 0)::int from return_items ri where ri.condition = 'LOST') as lost_return_units,
       (select coalesce(sum(qty), 0)::int from reservations where status = 'ACTIVE') as reserved_units,
       (select count(*)::int from anomalies where status <> 'RESOLVED') as open_anomalies,
       (select count(*)::int from anomalies where status <> 'RESOLVED' and severity = 'CRITICAL') as critical_anomalies,
@@ -190,19 +191,22 @@ export default async function DashboardPage() {
           </Card>
         </Link>
 
-        <Link href="/ledger?state=DAMAGED">
+        <Link href="/retur">
           <Card className="h-full transition-colors hover:bg-muted/50">
             <CardHeader className="pb-1">
               <CardDescription className="flex items-center gap-1.5">
                 <Boxes className="size-4" />
-                Stok Rusak
+                Retur Rusak / Hilang
               </CardDescription>
               <CardTitle className="font-mono text-2xl">
-                {fmtQty(stats.damaged_units as number)}
+                {fmtQty(
+                  (stats.damaged_return_units as number) +
+                    (stats.lost_return_units as number)
+                )}
               </CardTitle>
             </CardHeader>
             <CardContent className="text-xs text-muted-foreground">
-              terpisah dari layak jual — tidak pernah tercampur
+              record audit/klaim — tanpa pergerakan stok kedua
             </CardContent>
           </Card>
         </Link>

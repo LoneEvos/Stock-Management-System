@@ -193,5 +193,39 @@ export async function runDailyChecks(): Promise<CheckSummary[]> {
   `;
   results.push({ check: "Mendekati kedaluwarsa", found: expiring.length });
 
+  // 11. VERIFIKASI SALDO O(1): summary (stock_balances) harus SELALU sama
+  //     dengan SUM(ledger). Summary hanyalah cache berkinerja — ledger tetap
+  //     satu-satunya sumber kebenaran, dan di sinilah itu dibuktikan tiap hari.
+  const summaryMismatch = await sql`
+    insert into anomalies (type, severity, title, description, ref_type, ref_id, dedupe_key)
+    select 'SUMMARY_LEDGER_MISMATCH', 'CRITICAL',
+      'Saldo summary ≠ ledger: ' || p.name || ' (' || b.batch_code || ', ' || m.stock_state || ')',
+      'stock_balances mencatat ' || m.summary_qty || ' tapi SUM(ledger) = ' || m.ledger_qty ||
+      '. Ada penulisan di luar jalur resmi atau trigger gagal — audit segera.',
+      'batch', m.batch_id,
+      'summary_mismatch:' || m.batch_id || ':' || m.stock_state
+    from (
+      select coalesce(sb.product_id, l.product_id) as product_id,
+             coalesce(sb.batch_id, l.batch_id) as batch_id,
+             coalesce(sb.stock_state, l.stock_state) as stock_state,
+             coalesce(sb.qty, 0) as summary_qty,
+             coalesce(l.qty, 0) as ledger_qty
+      from stock_balances sb
+      full outer join (
+        select product_id, batch_id, stock_state, sum(qty_delta)::int as qty
+        from stock_ledger
+        group by product_id, batch_id, stock_state
+      ) l on l.product_id = sb.product_id
+         and l.batch_id = sb.batch_id
+         and l.stock_state = sb.stock_state
+    ) m
+    join products p on p.id = m.product_id
+    join batches b on b.id = m.batch_id
+    where m.summary_qty <> m.ledger_qty
+    on conflict (dedupe_key) do nothing
+    returning id
+  `;
+  results.push({ check: "Verifikasi summary vs ledger", found: summaryMismatch.length });
+
   return results;
 }

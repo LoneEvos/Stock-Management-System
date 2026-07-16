@@ -1,12 +1,23 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo } from "react";
+import { useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import type { ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "@/components/data-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   CHANNEL_LABEL,
   MOVEMENT_LABEL,
@@ -17,7 +28,12 @@ import {
   fmtQty,
 } from "@/lib/format";
 import type { LedgerRow } from "@/lib/queries";
-import { ExternalLink, X } from "lucide-react";
+import {
+  getCorrectionPreview,
+  postCorrection,
+  type CorrectionPreview,
+} from "./actions";
+import { ExternalLink, Undo2, X } from "lucide-react";
 
 /** Tautan ke dokumen sumber sebuah entri ledger — inti penelusuran. */
 function RefLink({ row }: { row: LedgerRow }) {
@@ -109,9 +125,21 @@ export function LedgerClient({
         accessorKey: "movement_type",
         header: "Jenis",
         cell: ({ row }) => (
-          <Badge variant="outline">
-            {MOVEMENT_LABEL[row.original.movement_type]}
-          </Badge>
+          <div className="flex flex-wrap items-center gap-1">
+            <Badge variant="outline">
+              {MOVEMENT_LABEL[row.original.movement_type]}
+            </Badge>
+            {row.original.correction_of && (
+              <Badge className="bg-violet-600 text-white hover:bg-violet-600">
+                Koreksi Entri №{row.original.correction_of}
+              </Badge>
+            )}
+            {row.original.corrected_by && (
+              <Badge variant="secondary" className="line-through">
+                Dikoreksi
+              </Badge>
+            )}
+          </div>
         ),
         filterFn: "equals",
       },
@@ -147,15 +175,30 @@ export function LedgerClient({
       },
       {
         accessorKey: "note",
-        header: "Catatan",
+        header: "Referensi / Catatan",
         cell: ({ row }) => (
-          <span
-            className="block max-w-52 truncate text-xs text-muted-foreground"
-            title={row.original.note ?? ""}
-          >
-            {row.original.note ?? "—"}
-          </span>
+          <div className="max-w-52">
+            {row.original.reference && (
+              <span
+                className="block truncate text-xs font-medium"
+                title={row.original.reference}
+              >
+                📎 {row.original.reference}
+              </span>
+            )}
+            <span
+              className="block truncate text-xs text-muted-foreground"
+              title={row.original.note ?? ""}
+            >
+              {row.original.note ?? (row.original.reference ? "" : "—")}
+            </span>
+          </div>
         ),
+      },
+      {
+        id: "koreksi",
+        header: "",
+        cell: ({ row }) => <KoreksiButton row={row.original} />,
       },
     ],
     []
@@ -234,5 +277,124 @@ export function LedgerClient({
         emptyText="Tidak ada pergerakan yang cocok."
       />
     </div>
+  );
+}
+
+/**
+ * KOREKSI ENTRI (Phase 2): reversal cepat saat operator sadar salah input —
+ * entri pembalik baru ber-correction_of, BUKAN edit. Dibedakan dari koreksi
+ * opname. Layar konfirmasi menampilkan dampak ke available stock (satu-satunya
+ * titik yang sengaja diberi friksi).
+ */
+function KoreksiButton({ row }: { row: LedgerRow }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [preview, setPreview] = useState<CorrectionPreview | null>(null);
+  const [note, setNote] = useState("");
+  const [pending, startTransition] = useTransition();
+
+  const eligible = !row.corrected_by && row.movement_type !== "SALE_OUT";
+  if (!eligible) return null;
+
+  function openDialog() {
+    setOpen(true);
+    setPreview(null);
+    setNote("");
+    getCorrectionPreview(row.id).then(setPreview);
+  }
+
+  function submit() {
+    startTransition(async () => {
+      const res = await postCorrection({ ledger_id: row.id, note });
+      if (res.ok) {
+        toast.success(res.message);
+        setOpen(false);
+        router.refresh();
+      } else toast.error(res.message);
+    });
+  }
+
+  return (
+    <>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="text-muted-foreground"
+        title="Koreksi Entri — balikkan entri yang salah input"
+        onClick={openDialog}
+      >
+        <Undo2 className="size-3.5" />
+        Koreksi
+      </Button>
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Koreksi Entri №{row.id}</DialogTitle>
+            <DialogDescription>
+              Entri asal TIDAK dihapus — koreksi = entri pembalik baru yang
+              tertaut (append-only). Satu entri hanya bisa dikoreksi sekali.
+            </DialogDescription>
+          </DialogHeader>
+
+          {!preview ? (
+            <p className="py-4 text-sm text-muted-foreground">Memuat dampak…</p>
+          ) : !preview.ok ? (
+            <p className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
+              {preview.message}
+            </p>
+          ) : (
+            <>
+              <div className="space-y-1.5 rounded-lg bg-muted p-4 text-sm">
+                <p>
+                  Produk: <b>{preview.product_name}</b>{" "}
+                  <span className="text-muted-foreground">
+                    (batch {preview.batch_code})
+                  </span>
+                </p>
+                <p>
+                  Entri asal:{" "}
+                  <b className="font-mono">{fmtDelta(preview.qty_delta!)}</b> —
+                  pembalik:{" "}
+                  <b className="font-mono">{fmtDelta(-preview.qty_delta!)}</b>
+                </p>
+                <p>
+                  Dampak stok tersedia:{" "}
+                  <b className="font-mono">
+                    {fmtQty(preview.available_before!)} →{" "}
+                    {fmtQty(preview.available_after!)}
+                  </b>
+                </p>
+              </div>
+              <div className="grid gap-2">
+                <Label>Alasan koreksi (wajib — kenapa entri asal salah)</Label>
+                <Textarea
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  placeholder="Contoh: salah ketik qty, seharusnya 10 bukan 100…"
+                  rows={2}
+                />
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => setOpen(false)}
+                >
+                  Kembali
+                </Button>
+                <Button
+                  className="flex-1"
+                  disabled={pending || !note.trim()}
+                  onClick={submit}
+                >
+                  {pending ? "Memposting…" : "Posting Entri Pembalik"}
+                </Button>
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

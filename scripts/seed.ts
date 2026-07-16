@@ -23,6 +23,7 @@ import {
   withStockTransaction,
 } from "../src/lib/ledger/engine";
 import {
+  buildCorrection,
   buildInbound,
   buildInitialCount,
   buildManualOut,
@@ -30,7 +31,7 @@ import {
   buildReturnIn,
 } from "../src/lib/ledger/postings";
 import { ingestEvent } from "../src/lib/marketplace/ingest";
-import type { ManualOutReason } from "../src/lib/ledger/types";
+import type { ManualOutReason, StoredLedgerRow } from "../src/lib/ledger/types";
 import { runDailyChecks } from "../src/lib/anomaly/checks";
 
 const OPERATOR = "seed@sistem";
@@ -346,15 +347,16 @@ async function main() {
 
   // Keluar manual tersebar (bonus/promo/sampel/offline) — sumber selisih klasik
   console.log("Keluar manual (bonus, promo, sampel, offline)…");
-  const manualPlan: { name: string; qty: number; reason: ManualOutReason; day: number; note: string }[] = [
-    { name: "Aura Hydrogel Mask", qty: 24, reason: "bonus", day: 12, note: "Bonus checkout livestream TikTok" },
-    { name: "DNA Salmon", qty: 12, reason: "promo", day: 10, note: "Giveaway anniversary" },
-    { name: "Sun Screen", qty: 6, reason: "sample", day: 9, note: "Sampel reseller Surabaya" },
+  // Phase 2: bonus/promo/sample WAJIB ber-referensi (campaign / approval).
+  const manualPlan: { name: string; qty: number; reason: ManualOutReason; day: number; note: string; reference?: string }[] = [
+    { name: "Aura Hydrogel Mask", qty: 24, reason: "bonus", day: 12, note: "Bonus checkout livestream TikTok", reference: "Livestream 7.7 — approval Bu Rina" },
+    { name: "DNA Salmon", qty: 12, reason: "promo", day: 10, note: "Giveaway anniversary", reference: "Campaign Anniversary-3 Juli 2026" },
+    { name: "Sun Screen", qty: 6, reason: "sample", day: 9, note: "Sampel reseller Surabaya", reference: "Reseller SBY-012 — approval Pak Dimas" },
     { name: "Peel of Masker", qty: 150, reason: "offline_sale", day: 8, note: "PO bazar Jakarta" },
-    { name: "Lip Berry Flame", qty: 10, reason: "bonus", day: 6, note: "Bonus paket >Rp200k" },
+    { name: "Lip Berry Flame", qty: 10, reason: "bonus", day: 6, note: "Bonus paket >Rp200k", reference: "Promo bundling Juli — approval Bu Rina" },
     { name: "Glow Face Cream", qty: 4, reason: "damaged", day: 5, note: "Pecah saat packing" },
     { name: "Sabun Doosting Bar", qty: 60, reason: "offline_sale", day: 3, note: "Penjualan kantor" },
-    { name: "Body Mask Pink", qty: 8, reason: "sample", day: 2, note: "Konten kreator" },
+    { name: "Body Mask Pink", qty: 8, reason: "sample", day: 2, note: "Konten kreator", reference: "KOL @glowdaily — approval Pak Dimas" },
   ];
   for (const m of manualPlan) {
     const pid = productIds.get(m.name)!;
@@ -369,10 +371,65 @@ async function main() {
         batches: balances,
         operator: OPERATOR,
         ref: { ref_type: "manual_out", ref_id: randomUUID() },
+        reference: m.reference ?? null,
         note: m.note,
       });
       for (const e of entries) e.created_at = daysAgo(m.day, 14);
       await insertEntries(tx, entries);
+    });
+  }
+
+  // Contoh KOREKSI ENTRI (Phase 2): salah input bonus 20 (harusnya 2) →
+  // operator sadar → entri pembalik cepat, lalu input ulang yang benar.
+  console.log("Contoh Koreksi Entri (salah input admin)…");
+  {
+    const pid = productIds.get("Energizing")!;
+    await withStockTransaction(async (tx) => {
+      await lockProduct(tx, pid);
+      const balances = await getBatchBalances(tx, pid);
+      const { entries } = buildManualOut({
+        product_id: pid,
+        qty: 20, // SALAH KETIK — harusnya 2
+        reason: "bonus",
+        channel: "shopee",
+        batches: balances,
+        operator: OPERATOR,
+        ref: { ref_type: "manual_out", ref_id: randomUUID() },
+        reference: "Bonus follower 10k — approval Bu Rina",
+        note: "Bonus giveaway follower",
+      });
+      entries[0].created_at = daysAgo(1, 11);
+      const [wrongId] = await insertEntries(tx, entries);
+
+      // Pembalik (correction_of) — divalidasi trigger DB harus cermin persis.
+      const [orig] = await tx`
+        select id, product_id, batch_id, qty_delta, movement_type, reason,
+               channel, stock_state, ref_type, ref_id, reference
+        from stock_ledger where id = ${wrongId}
+      `;
+      const correction = buildCorrection({
+        original: orig as unknown as StoredLedgerRow,
+        operator: OPERATOR,
+        note: "Salah ketik qty: tertulis 20, seharusnya 2 — dibalik lalu input ulang.",
+      });
+      correction[0].created_at = daysAgo(1, 12);
+      await insertEntries(tx, correction);
+
+      // Input ulang yang benar.
+      const balances2 = await getBatchBalances(tx, pid);
+      const { entries: fixed } = buildManualOut({
+        product_id: pid,
+        qty: 2,
+        reason: "bonus",
+        channel: "shopee",
+        batches: balances2,
+        operator: OPERATOR,
+        ref: { ref_type: "manual_out", ref_id: randomUUID() },
+        reference: "Bonus follower 10k — approval Bu Rina",
+        note: "Input ulang yang benar (pengganti entri terkoreksi)",
+      });
+      fixed[0].created_at = daysAgo(1, 12);
+      await insertEntries(tx, fixed);
     });
   }
 
@@ -403,31 +460,38 @@ async function main() {
       { type: "RETURN_RECEIVED", channel: story.channel, marketplace_order_id: mpId, occurred_at: daysAgo(story.day, 11) },
       "simulator", OPERATOR
     );
-    // inspeksi manual (logika sama dengan action inspeksi)
+    // inspeksi manual (logika sama dengan action inspeksi — arah Phase 2):
+    //   SELLABLE → batch BARU bertanda retur; DAMAGED → record audit TANPA ledger.
     const [order] = await sql`select id from orders where marketplace_order_id = ${mpId}`;
     const [ret] = await sql`select id, channel, order_id from returns where order_id = ${order.id}`;
     const items = await sql`select id, product_id, qty from return_items where return_id = ${ret.id}`;
     await withStockTransaction(async (tx) => {
       for (const it of items) {
-        const outRows = await tx`
-          select l.batch_id, sum(-l.qty_delta)::int as out_qty
-          from stock_ledger l
-          where l.ref_type = 'order' and l.ref_id = ${ret.order_id}
-            and l.product_id = ${it.product_id} and l.movement_type = 'SALE_OUT'
-          group by l.batch_id limit 1
-        `;
-        const entries = buildReturnIn({
-          product_id: it.product_id as string,
-          batch_id: outRows[0].batch_id as string,
-          qty: it.qty as number,
-          condition: story.condition,
-          channel: story.channel,
-          operator: OPERATOR,
-          ref: { ref_type: "return_item", ref_id: it.id as string },
-          note: `Inspeksi retur — ${story.condition === "SELLABLE" ? "layak jual" : "rusak"}`,
-        });
-        entries[0].created_at = daysAgo(story.day, 13);
-        await insertEntries(tx, entries);
+        if (story.condition === "SELLABLE") {
+          const [batch] = await tx`
+            insert into batches ${tx({
+              product_id: it.product_id,
+              batch_code: `RET-${mpId}`,
+              expiry_date: null,
+              source: "retur",
+            })}
+            on conflict (product_id, batch_code)
+            do update set source = 'retur'
+            returning id
+          `;
+          const entries = buildReturnIn({
+            product_id: it.product_id as string,
+            batch_id: batch.id as string,
+            qty: it.qty as number,
+            channel: story.channel,
+            operator: OPERATOR,
+            ref: { ref_type: "return_item", ref_id: it.id as string },
+            note: `Inspeksi retur ${mpId} — layak jual, masuk batch retur`,
+          });
+          entries[0].created_at = daysAgo(story.day, 13);
+          await insertEntries(tx, entries);
+        }
+        // DAMAGED: tanpa entri ledger (anti double-count) — audit di return_items.
         await tx`update return_items set condition = ${story.condition} where id = ${it.id}`;
       }
       await tx`

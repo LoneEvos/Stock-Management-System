@@ -15,6 +15,8 @@ export interface ProductStockRow {
   quarantine_qty: number;
   reserved_qty: number;
   available_qty: number;
+  /** true = stok awal masih perkiraan (belum tersentuh opname terposting). */
+  baseline_unverified: boolean;
 }
 
 export async function getProductStock(): Promise<ProductStockRow[]> {
@@ -64,7 +66,10 @@ export interface LedgerRow {
   ref_id: string | null;
   operator: string;
   note: string | null;
+  reference: string | null;
   correction_of: number | null;
+  /** id entri pembalik bila baris ini SUDAH dikoreksi (Koreksi Entri). */
+  corrected_by: number | null;
 }
 
 export interface LedgerFilter {
@@ -82,10 +87,12 @@ export interface LedgerFilter {
 export async function getLedger(f: LedgerFilter = {}): Promise<LedgerRow[]> {
   const limit = Math.min(f.limit ?? 500, 2000);
   const rows = await sql`
-    select l.*, p.name as product_name, p.sku as product_sku, b.batch_code
+    select l.*, p.name as product_name, p.sku as product_sku, b.batch_code,
+           c.id as corrected_by
     from stock_ledger l
     join products p on p.id = l.product_id
     join batches b on b.id = l.batch_id
+    left join stock_ledger c on c.correction_of = l.id
     where true
       ${f.product_id ? sql`and l.product_id = ${f.product_id}` : sql``}
       ${f.batch_id ? sql`and l.batch_id = ${f.batch_id}` : sql``}
@@ -106,8 +113,10 @@ export async function getProducts() {
 }
 
 export async function getBundlesWithItems() {
+  // Hanya resep VERSI AKTIF yang ditampilkan/dipakai. Versi lama tetap
+  // tersimpan — order lama tidak berubah saat resep diedit (Phase 2).
   return sql`
-    select bd.id, bd.sku, bd.name, bd.is_active,
+    select bd.id, bd.sku, bd.name, bd.is_active, bd.active_version,
       coalesce(json_agg(json_build_object(
         'product_id', bi.product_id,
         'product_name', p.name,
@@ -115,7 +124,8 @@ export async function getBundlesWithItems() {
         'qty', bi.qty
       ) order by p.name) filter (where bi.id is not null), '[]') as items
     from bundles bd
-    left join bundle_items bi on bi.bundle_id = bd.id
+    left join bundle_items bi
+      on bi.bundle_id = bd.id and bi.version = bd.active_version
     left join products p on p.id = bi.product_id
     group by bd.id
     order by bd.name

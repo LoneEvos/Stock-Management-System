@@ -5,13 +5,15 @@
 // ============================================================================
 
 import { allocateFefo } from "./fefo";
-import type {
-  BatchBalance,
-  Channel,
-  FefoAllocation,
-  LedgerEntry,
-  ManualOutReason,
-  StockState,
+import {
+  REASONS_NEED_REFERENCE,
+  type BatchBalance,
+  type Channel,
+  type FefoAllocation,
+  type LedgerEntry,
+  type ManualOutReason,
+  type StockState,
+  type StoredLedgerRow,
 } from "./types";
 
 interface Ref {
@@ -107,6 +109,8 @@ export function buildSaleOut(params: {
  * Keluar manual — penjualan offline, bonus, promo, sampel, rusak, kedaluwarsa.
  * ALASAN wajib dan TERPISAH dari kanal: offline_sale ≠ bonus meski sama-sama
  * manual. Inilah penutup kebocoran terbesar (barang keluar tanpa pesanan).
+ * Phase 2: bonus/promo/sample WAJIB menyertakan referensi (campaign/approval)
+ * supaya kebocoran terbesar bukan cuma tercatat, tapi bisa DIJELASKAN.
  */
 export function buildManualOut(params: {
   product_id: string;
@@ -116,8 +120,18 @@ export function buildManualOut(params: {
   batches: BatchBalance[];
   operator: string;
   ref: Ref;
+  reference?: string | null;
   note?: string | null;
 }): { entries: LedgerEntry[]; allocations: FefoAllocation[] } {
+  const reference = params.reference?.trim() || null;
+  if (
+    (REASONS_NEED_REFERENCE as readonly string[]).includes(params.reason) &&
+    !reference
+  ) {
+    throw new Error(
+      `Alasan "${params.reason}" wajib menyertakan referensi (nama campaign / catatan approval).`
+    );
+  }
   const allocations = allocateFefo(params.qty, params.batches);
   const entries = allocations.map<LedgerEntry>((a) => ({
     product_id: params.product_id,
@@ -130,44 +144,86 @@ export function buildManualOut(params: {
     ref_type: params.ref.ref_type,
     ref_id: params.ref.ref_id,
     operator: params.operator,
+    reference,
     note: params.note ?? null,
   }));
   return { entries, allocations };
 }
 
 /**
- * Retur diterima & diinspeksi gudang — nasib ditentukan MANUAL oleh gudang:
- *  - SELLABLE → masuk kembali ke stok layak jual
- *  - DAMAGED  → masuk ke stok rusak/karantina (tidak pernah sellable)
- * (LOST tidak lewat sini — pakai buildReturnLost, karena barang tak pernah kembali.)
+ * Retur LAYAK JUAL masuk kembali ke stok — ke BATCH BARU bertanda "retur"
+ * (Phase 2, keputusan klien #2): expiry batch asal sering tak bisa dipastikan;
+ * batch baru (tanpa ED → FEFO paling akhir) menjaga akurasi FEFO.
+ *
+ * Retur RUSAK / HILANG **tidak** menulis ledger sama sekali (keputusan klien
+ * #3): stok sudah terpotong saat SHIPPED — entri kedua = double-count.
+ * Jejaknya di return_items (record klaim/loss untuk audit).
  */
 export function buildReturnIn(params: {
   product_id: string;
+  /** Batch BARU ber-source 'retur' (bukan batch asal penjualan). */
   batch_id: string;
   qty: number;
-  condition: "SELLABLE" | "DAMAGED";
   channel: Channel;
   operator: string;
   ref: Ref;
   note?: string | null;
 }): LedgerEntry[] {
   assertPositiveInt(params.qty);
-  const state: StockState =
-    params.condition === "SELLABLE" ? "SELLABLE" : "DAMAGED";
   return [
     {
       product_id: params.product_id,
       batch_id: params.batch_id,
       qty_delta: params.qty,
       movement_type: "RETURN_IN",
-      reason:
-        params.condition === "SELLABLE" ? "return_sellable" : "return_damaged",
+      reason: "return_sellable",
       channel: params.channel,
-      stock_state: state,
+      stock_state: "SELLABLE",
       ref_type: params.ref.ref_type,
       ref_id: params.ref.ref_id,
       operator: params.operator,
       note: params.note ?? null,
+    },
+  ];
+}
+
+/**
+ * KOREKSI ENTRI (Phase 2 — sumber selisih ke-5: salah input admin).
+ * Reversal cepat: entri CERMIN dari entri asal (qty dinegasikan, jenis/alasan/
+ * batch sama) dengan correction_of menunjuk entri asal. BUKAN edit/hapus —
+ * ledger tetap append-only. Dibedakan dari ADJUSTMENT_OPNAME (ritme opname).
+ * Trigger DB memvalidasi cermin persis + satu entri hanya dikoreksi sekali.
+ */
+export function buildCorrection(params: {
+  original: StoredLedgerRow;
+  operator: string;
+  /** Alasan koreksi — WAJIB (jejak kenapa entri asal salah). */
+  note: string;
+}): LedgerEntry[] {
+  const note = params.note.trim();
+  if (!note) {
+    throw new Error("Koreksi wajib menyertakan catatan alasan.");
+  }
+  if (params.original.movement_type === "SALE_OUT") {
+    throw new Error(
+      "SALE_OUT tidak dikoreksi manual — gunakan alur batal/retur pesanan agar dokumennya ikut benar."
+    );
+  }
+  return [
+    {
+      product_id: params.original.product_id,
+      batch_id: params.original.batch_id,
+      qty_delta: -params.original.qty_delta,
+      movement_type: params.original.movement_type,
+      reason: params.original.reason,
+      channel: params.original.channel,
+      stock_state: params.original.stock_state,
+      ref_type: params.original.ref_type,
+      ref_id: params.original.ref_id,
+      operator: params.operator,
+      reference: params.original.reference ?? null,
+      correction_of: params.original.id,
+      note,
     },
   ];
 }

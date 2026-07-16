@@ -9,7 +9,12 @@ import {
   withStockTransaction,
 } from "@/lib/ledger/engine";
 import { buildManualOut } from "@/lib/ledger/postings";
-import { MANUAL_OUT_REASONS, type Channel, type ManualOutReason } from "@/lib/ledger/types";
+import {
+  MANUAL_OUT_REASONS,
+  REASONS_NEED_REFERENCE,
+  type Channel,
+  type ManualOutReason,
+} from "@/lib/ledger/types";
 import { requireOperator } from "@/lib/supabase/server";
 
 export interface ActionResult {
@@ -27,6 +32,7 @@ export async function postManualOut(input: {
   qty: number;
   reason: string;
   channel: string;
+  reference?: string;
   note?: string;
 }): Promise<ActionResult> {
   try {
@@ -39,6 +45,16 @@ export async function postManualOut(input: {
       return { ok: false, message: "Alasan tidak valid — alasan wajib dipilih." };
     if (!["shopee", "tiktok", "offline", "internal"].includes(input.channel))
       return { ok: false, message: "Kanal tidak valid." };
+    // Phase 2: kebocoran terbesar harus BISA DIJELASKAN, bukan cuma tercatat.
+    if (
+      (REASONS_NEED_REFERENCE as readonly string[]).includes(input.reason) &&
+      !input.reference?.trim()
+    )
+      return {
+        ok: false,
+        message:
+          "Bonus/promo/sampel wajib menyertakan referensi (nama campaign / catatan approval).",
+      };
 
     const outId = randomUUID();
 
@@ -53,6 +69,7 @@ export async function postManualOut(input: {
         batches: balances,
         operator,
         ref: { ref_type: "manual_out", ref_id: outId },
+        reference: input.reference?.trim() || null,
         note: input.note?.trim() || null,
       });
       await insertEntries(tx, entries);

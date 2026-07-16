@@ -61,32 +61,44 @@ export async function ingestEvent(
 
 // ---------------------------------------------------------------------------
 
-/** Pecah baris listing menjadi (product_id, qty, listing_sku, bundle_id). */
+/** Pecah baris listing menjadi (product_id, qty, listing_sku, bundle_id, versi resep). */
 async function explodeLines(
   tx: TransactionSql,
   lines: ListingLine[]
 ): Promise<
-  { product_id: string; qty: number; listing_sku: string; bundle_id: string | null }[]
+  {
+    product_id: string;
+    qty: number;
+    listing_sku: string;
+    bundle_id: string | null;
+    bundle_version: number | null;
+  }[]
 > {
   const out: {
     product_id: string;
     qty: number;
     listing_sku: string;
     bundle_id: string | null;
+    bundle_version: number | null;
   }[] = [];
 
   for (const line of lines) {
-    // 1) SKU bundle? → pecah lewat resep admin. Tidak ada stok bundle.
+    // 1) SKU bundle? → pecah lewat resep admin VERSI AKTIF. Tidak ada stok
+    //    bundle. Versi resep dicatat di order_items — edit resep di kemudian
+    //    hari TIDAK mengubah pesanan lama (resep di-versioning, Phase 2).
     const bundle = await tx`
-      select b.id from bundles b where b.sku = ${line.listing_sku} and b.is_active
+      select b.id, b.active_version from bundles b
+      where b.sku = ${line.listing_sku} and b.is_active
     `;
     if (bundle.length > 0) {
       const items = await tx`
-        select product_id, qty from bundle_items where bundle_id = ${bundle[0].id}
+        select product_id, qty from bundle_items
+        where bundle_id = ${bundle[0].id}
+          and version = ${bundle[0].active_version}
       `;
       if (items.length === 0) {
         throw new Error(
-          `Bundle ${line.listing_sku} tidak punya resep (bundle_items kosong).`
+          `Bundle ${line.listing_sku} tidak punya resep (versi aktif kosong).`
         );
       }
       for (const it of items) {
@@ -95,6 +107,7 @@ async function explodeLines(
           qty: (it.qty as number) * line.qty,
           listing_sku: line.listing_sku,
           bundle_id: bundle[0].id as string,
+          bundle_version: bundle[0].active_version as number,
         });
       }
       continue;
@@ -114,6 +127,7 @@ async function explodeLines(
       qty: line.qty,
       listing_sku: line.listing_sku,
       bundle_id: null,
+      bundle_version: null,
     });
   }
   return out;
@@ -180,6 +194,7 @@ async function handleOrderCreated(
           qty: it.qty,
           listing_sku: it.listing_sku,
           bundle_id: it.bundle_id,
+          bundle_version: it.bundle_version,
         })}
         returning id
       `;
@@ -234,9 +249,21 @@ async function handleOrderShipped(
         };
       }
 
+      // Kirim SESUAI RESERVASI AKTIF (bukan order_items mentah): pembatalan
+      // parsial sebelum kirim sudah mengurangi janji — yang keluar fisik
+      // hanyalah yang masih dijanjikan.
       const items = await tx`
-        select id, product_id, qty from order_items where order_id = ${order.id}
+        select product_id, sum(qty)::int as qty
+        from reservations
+        where order_id = ${order.id} and status = 'ACTIVE'
+        group by product_id
       `;
+      if (items.length === 0) {
+        return {
+          ok: false,
+          message: `Pesanan ${event.marketplace_order_id} tidak punya reservasi aktif — seluruh item sudah dibatalkan.`,
+        };
+      }
 
       const batchNotes: string[] = [];
       for (const it of items) {
@@ -367,9 +394,83 @@ async function handleOrderCancelled(
     `;
     if (!order) throw new Error(`Pesanan ${event.marketplace_order_id} tidak ditemukan.`);
 
+    const isPartial = !!event.lines && event.lines.length > 0;
+
     if (order.status === "CREATED") {
       // ---- Batal SEBELUM kirim: stok fisik tidak pernah bergerak. ----
       // Reservasi dilepas; jejak audit di reservations + order_events.
+      if (isPartial) {
+        // PARSIAL per item (Phase 2 #4): hanya baris yang disebut yang
+        // dilepas. Bundle dipecah dulu → dihitung per produk satuan.
+        const cancelled = await explodeLines(tx, event.lines!);
+        for (const c of cancelled) {
+          let remaining = c.qty;
+          const resv = await tx`
+            select id, qty from reservations
+            where order_id = ${order.id} and product_id = ${c.product_id}
+              and status = 'ACTIVE'
+            order by created_at
+            for update
+          `;
+          for (const r of resv) {
+            if (remaining === 0) break;
+            const take = Math.min(remaining, r.qty as number);
+            await tx`
+              update reservations
+              set status = 'RELEASED', released_at = now(),
+                  release_reason = ${"cancelled_partial: " + (event.reason ?? "-")}
+              where id = ${r.id}
+            `;
+            if (take < (r.qty as number)) {
+              // Sisa janji tetap hidup sebagai reservasi baru (berjejak,
+              // bukan edit qty diam-diam).
+              const [oi] = await tx`
+                select order_item_id from reservations where id = ${r.id}
+              `;
+              await tx`
+                insert into reservations ${tx({
+                  order_item_id: oi.order_item_id,
+                  order_id: order.id,
+                  product_id: c.product_id,
+                  qty: (r.qty as number) - take,
+                  status: "ACTIVE",
+                })}
+              `;
+            }
+            remaining -= take;
+          }
+          if (remaining > 0) {
+            throw new Error(
+              `Qty batal melebihi reservasi aktif untuk produk pada pesanan ini.`
+            );
+          }
+        }
+
+        const [{ n: activeLeft }] = await tx`
+          select count(*)::int as n from reservations
+          where order_id = ${order.id} and status = 'ACTIVE'
+        `;
+        if ((activeLeft as number) === 0) {
+          await tx`
+            update orders set status = 'CANCELLED',
+              cancelled_at = ${event.occurred_at ?? new Date().toISOString()}
+            where id = ${order.id}
+          `;
+        }
+        await logEvent(tx, {
+          order_id: order.id as string,
+          event_type: "CANCELLED_PARTIAL_BEFORE_SHIP",
+          source,
+          payload: event,
+          occurred_at: event.occurred_at,
+        });
+        return {
+          ok: true,
+          message: `Pembatalan parsial ${event.marketplace_order_id} — reservasi item terkait dilepas, stok fisik tidak berubah.`,
+          order_id: order.id as string,
+        };
+      }
+
       await tx`
         update reservations
         set status = 'RELEASED', released_at = now(),
@@ -398,28 +499,32 @@ async function handleOrderCancelled(
     if (order.status === "SHIPPED") {
       // ---- Batal SESUDAH kirim: barang sudah keluar → WAJIB ada dokumen
       // retur yang menunggu barang kembali. Stok baru pulih saat retur
-      // diinspeksi gudang. Kebocoran klasik tertutup di sini. ----
+      // diinspeksi gudang. Kebocoran klasik tertutup di sini. Parsial =
+      // dokumen retur hanya untuk item yang dibatalkan. ----
       const returnId = await createReturnForOrder(tx, {
         order_id: order.id as string,
         channel: order.channel as "shopee" | "tiktok",
         reason: `Batal setelah kirim: ${event.reason ?? "-"}`,
         occurred_at: event.occurred_at,
+        lines: isPartial ? event.lines : undefined,
       });
-      await tx`
-        update orders set status = 'CANCELLED',
-          cancelled_at = ${event.occurred_at ?? new Date().toISOString()}
-        where id = ${order.id}
-      `;
+      if (!isPartial) {
+        await tx`
+          update orders set status = 'CANCELLED',
+            cancelled_at = ${event.occurred_at ?? new Date().toISOString()}
+          where id = ${order.id}
+        `;
+      }
       await logEvent(tx, {
         order_id: order.id as string,
-        event_type: "CANCELLED_AFTER_SHIP",
+        event_type: isPartial ? "CANCELLED_PARTIAL_AFTER_SHIP" : "CANCELLED_AFTER_SHIP",
         source,
         payload: event,
         occurred_at: event.occurred_at,
       });
       return {
         ok: true,
-        message: `Pesanan ${event.marketplace_order_id} batal SESUDAH kirim — dokumen retur dibuat, stok pulih hanya lewat inspeksi retur.`,
+        message: `Pesanan ${event.marketplace_order_id} batal ${isPartial ? "PARSIAL " : ""}SESUDAH kirim — dokumen retur dibuat, stok pulih hanya lewat inspeksi retur.`,
         order_id: order.id as string,
         return_id: returnId,
       };
@@ -451,11 +556,13 @@ async function handleReturnCreated(
       };
     }
 
+    const isPartial = !!event.lines && event.lines.length > 0;
     const returnId = await createReturnForOrder(tx, {
       order_id: order.id as string,
       channel: order.channel as "shopee" | "tiktok",
       reason: event.reason ?? null,
       occurred_at: event.occurred_at,
+      lines: isPartial ? event.lines : undefined,
     });
 
     await tx`
@@ -465,14 +572,14 @@ async function handleReturnCreated(
     `;
     await logEvent(tx, {
       order_id: order.id as string,
-      event_type: "RETURN_CREATED",
+      event_type: isPartial ? "RETURN_CREATED_PARTIAL" : "RETURN_CREATED",
       source,
       payload: event,
       occurred_at: event.occurred_at,
     });
     return {
       ok: true,
-      message: `Retur dibuat untuk ${event.marketplace_order_id} — status IN_TRANSIT_BACK, menunggu barang tiba.`,
+      message: `Retur ${isPartial ? "parsial " : ""}dibuat untuk ${event.marketplace_order_id} — status IN_TRANSIT_BACK, menunggu barang tiba.`,
       order_id: order.id as string,
       return_id: returnId,
     };
@@ -529,7 +636,11 @@ async function handleReturnReceived(
 
 // ---------------------------------------------------------------------------
 
-/** Buat dokumen retur + itemnya dari seluruh item pesanan. */
+/**
+ * Buat dokumen retur + itemnya. Tanpa `lines` = seluruh item pesanan.
+ * Dengan `lines` (Phase 2 #4) = retur PARSIAL: bundle dipecah per produk
+ * satuan, dan qty divalidasi terhadap yang dipesan − yang sudah pernah diretur.
+ */
 async function createReturnForOrder(
   tx: TransactionSql,
   params: {
@@ -537,10 +648,12 @@ async function createReturnForOrder(
     channel: "shopee" | "tiktok";
     reason: string | null;
     occurred_at?: string;
+    lines?: ListingLine[];
   }
 ): Promise<string> {
   const createdAt = params.occurred_at ?? new Date().toISOString();
-  // Batas klaim TikTok: 40 hari sejak retur dibuat (keputusan klien).
+  // Batas klaim TikTok: 40 hari sejak RETUR DIAJUKAN — created_at retur,
+  // bukan sejak IN_TRANSIT atau diterima pembeli (keputusan klien #1).
   const claimDeadline =
     params.channel === "tiktok"
       ? new Date(
@@ -549,6 +662,60 @@ async function createReturnForOrder(
           .toISOString()
           .slice(0, 10)
       : null;
+
+  const orderItems = await tx`
+    select id, product_id, qty from order_items where order_id = ${params.order_id}
+  `;
+
+  // Item yang diretur: seluruh pesanan, atau subset (per produk satuan).
+  let toReturn: { order_item_id: string; product_id: string; qty: number }[];
+
+  if (!params.lines) {
+    toReturn = orderItems.map((it) => ({
+      order_item_id: it.id as string,
+      product_id: it.product_id as string,
+      qty: it.qty as number,
+    }));
+  } else {
+    const exploded = await explodeLines(tx, params.lines);
+    // Gabung per produk (retur bundle sebagian = per produk satuan).
+    const perProduct = new Map<string, number>();
+    for (const e of exploded) {
+      perProduct.set(e.product_id, (perProduct.get(e.product_id) ?? 0) + e.qty);
+    }
+
+    // Validasi: qty retur ≤ dipesan − sudah pernah diretur (semua dokumen).
+    const prior = await tx`
+      select ri.product_id, coalesce(sum(ri.qty), 0)::int as qty
+      from return_items ri
+      join returns r on r.id = ri.return_id
+      where r.order_id = ${params.order_id}
+      group by ri.product_id
+    `;
+    const priorMap = new Map(prior.map((p) => [p.product_id as string, p.qty as number]));
+
+    toReturn = [];
+    for (const [productId, qty] of perProduct) {
+      const ordered = orderItems
+        .filter((it) => it.product_id === productId)
+        .reduce((s, it) => s + (it.qty as number), 0);
+      if (ordered === 0) {
+        throw new Error(`Produk tidak ada di pesanan ini — retur ditolak.`);
+      }
+      const already = priorMap.get(productId) ?? 0;
+      if (qty + already > ordered) {
+        throw new Error(
+          `Qty retur (${qty}) + retur sebelumnya (${already}) melebihi yang dipesan (${ordered}).`
+        );
+      }
+      const anchor = orderItems.find((it) => it.product_id === productId)!;
+      toReturn.push({
+        order_item_id: anchor.id as string,
+        product_id: productId,
+        qty,
+      });
+    }
+  }
 
   const [ret] = await tx`
     insert into returns ${tx({
@@ -562,14 +729,11 @@ async function createReturnForOrder(
     returning id
   `;
 
-  const items = await tx`
-    select id, product_id, qty from order_items where order_id = ${params.order_id}
-  `;
-  for (const it of items) {
+  for (const it of toReturn) {
     await tx`
       insert into return_items ${tx({
         return_id: ret.id,
-        order_item_id: it.id,
+        order_item_id: it.order_item_id,
         product_id: it.product_id,
         qty: it.qty,
         condition: null, // NULL sampai gudang menginspeksi

@@ -27,7 +27,13 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fmtQty } from "@/lib/format";
 import type { ProductStockRow } from "@/lib/queries";
-import { createBundle, createProduct, toggleBundle, updateProduct } from "./actions";
+import {
+  createBundle,
+  createProduct,
+  toggleBundle,
+  updateBundleRecipe,
+  updateProduct,
+} from "./actions";
 import { Package, PackagePlus, Pencil, Plus, Trash2 } from "lucide-react";
 
 interface BundleRow {
@@ -35,6 +41,7 @@ interface BundleRow {
   sku: string;
   name: string;
   is_active: boolean;
+  active_version: number;
   items: {
     product_id: string;
     product_name: string;
@@ -92,7 +99,18 @@ function ProductTable({ products }: { products: ProductStockRow[] }) {
         accessorKey: "name",
         header: "Nama Produk",
         cell: ({ row }) => (
-          <span className="font-medium">{row.original.name}</span>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="font-medium">{row.original.name}</span>
+            {row.original.baseline_unverified && (
+              <Badge
+                variant="outline"
+                className="border-amber-500 text-amber-600"
+                title="Stok awal masih perkiraan dari spreadsheet — terverifikasi setelah produk ini tersentuh opname pertama."
+              >
+                Stok awal belum terverifikasi
+              </Badge>
+            )}
+          </div>
         ),
       },
       {
@@ -342,13 +360,23 @@ function BundleTable({
         id: "resep",
         header: "Resep (dipecah saat data masuk)",
         cell: ({ row }) => (
-          <div className="flex max-w-md flex-wrap gap-1">
+          <div className="flex max-w-md flex-wrap items-center gap-1">
+            <Badge variant="outline" title="Versi resep aktif — edit resep membuat versi baru; pesanan lama tidak berubah.">
+              v{row.original.active_version}
+            </Badge>
             {row.original.items.map((it) => (
               <Badge key={it.product_id} variant="secondary">
                 {it.qty}× {it.product_name}
               </Badge>
             ))}
           </div>
+        ),
+      },
+      {
+        id: "edit",
+        header: "",
+        cell: ({ row }) => (
+          <EditBundleRecipeDialog bundle={row.original} products={products} />
         ),
       },
       {
@@ -377,7 +405,7 @@ function BundleTable({
         },
       },
     ],
-    [router]
+    [router, products]
   );
 
   return (
@@ -527,6 +555,143 @@ function NewBundleDialog({ products }: { products: ProductStockRow[] }) {
             }
           >
             {pending ? "Menyimpan…" : "Simpan Resep"}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * Edit resep = VERSI BARU (Phase 2). Versi lama tidak pernah diubah/dihapus —
+ * pesanan yang sudah dipecah dengan versi lama tetap akurat selamanya.
+ */
+function EditBundleRecipeDialog({
+  bundle,
+  products,
+}: {
+  bundle: BundleRow;
+  products: ProductStockRow[];
+}) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [items, setItems] = useState<{ product_id: string; qty: number }[]>(
+    bundle.items.map((it) => ({ product_id: it.product_id, qty: it.qty }))
+  );
+  const [pending, startTransition] = useTransition();
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => {
+          setItems(
+            bundle.items.map((it) => ({ product_id: it.product_id, qty: it.qty }))
+          );
+          setOpen(true);
+        }}
+      >
+        <Pencil className="size-3.5" />
+        Edit Resep
+      </Button>
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>
+            Edit Resep — {bundle.name} (v{bundle.active_version} →{" "}
+            v{bundle.active_version + 1})
+          </DialogTitle>
+          <DialogDescription>
+            Menyimpan membuat VERSI BARU. Pesanan lama yang dipecah dengan
+            v{bundle.active_version} tidak berubah — resep di-versioning.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4">
+          <div className="grid gap-2">
+            <Label>Resep — produk satuan & jumlah per paket</Label>
+            {items.map((it, idx) => (
+              <div key={idx} className="flex gap-2">
+                <Select
+                  items={Object.fromEntries(
+                    products
+                      .filter((p) => p.is_active)
+                      .map((p) => [p.product_id, p.name])
+                  )}
+                  value={it.product_id || null}
+                  onValueChange={(v) =>
+                    setItems((arr) =>
+                      arr.map((x, i) =>
+                        i === idx ? { ...x, product_id: v ?? "" } : x
+                      )
+                    )
+                  }
+                >
+                  <SelectTrigger className="flex-1">
+                    <SelectValue placeholder="Pilih produk…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {products
+                      .filter((p) => p.is_active)
+                      .map((p) => (
+                        <SelectItem key={p.product_id} value={p.product_id}>
+                          {p.name}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+                <Input
+                  type="number"
+                  min={1}
+                  className="w-20"
+                  value={it.qty}
+                  onChange={(e) =>
+                    setItems((arr) =>
+                      arr.map((x, i) =>
+                        i === idx ? { ...x, qty: Number(e.target.value) } : x
+                      )
+                    )
+                  }
+                />
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Hapus baris"
+                  onClick={() =>
+                    setItems((arr) => arr.filter((_, i) => i !== idx))
+                  }
+                >
+                  <Trash2 className="size-4" />
+                </Button>
+              </div>
+            ))}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                setItems((arr) => [...arr, { product_id: "", qty: 1 }])
+              }
+            >
+              <Plus className="size-4" />
+              Tambah produk
+            </Button>
+          </div>
+          <Button
+            disabled={pending}
+            onClick={() =>
+              startTransition(async () => {
+                const res = await updateBundleRecipe({
+                  bundle_id: bundle.id,
+                  items,
+                });
+                if (res.ok) {
+                  toast.success(res.message);
+                  setOpen(false);
+                  router.refresh();
+                } else toast.error(res.message);
+              })
+            }
+          >
+            {pending ? "Menyimpan…" : `Simpan sebagai v${bundle.active_version + 1}`}
           </Button>
         </div>
       </DialogContent>

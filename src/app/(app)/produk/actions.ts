@@ -88,6 +88,53 @@ export async function createBundle(input: {
   }
 }
 
+/**
+ * Edit resep bundle = VERSI BARU (Phase 2). Baris resep lama tidak disentuh —
+ * pesanan lama yang dipecah dengan versi lama tetap akurat selamanya.
+ */
+export async function updateBundleRecipe(input: {
+  bundle_id: string;
+  items: { product_id: string; qty: number }[];
+}): Promise<ActionResult> {
+  try {
+    await requireOperator();
+    const items = input.items.filter((i) => i.product_id && i.qty > 0);
+    if (items.length === 0)
+      return { ok: false, message: "Resep bundle minimal 1 produk satuan." };
+
+    const newVersion = await sql.begin(async (tx) => {
+      const [bundle] = await tx`
+        select id, active_version from bundles where id = ${input.bundle_id}
+        for update
+      `;
+      if (!bundle) throw new Error("Bundle tidak ditemukan.");
+      const next = (bundle.active_version as number) + 1;
+      for (const it of items) {
+        await tx`
+          insert into bundle_items ${tx({
+            bundle_id: input.bundle_id,
+            product_id: it.product_id,
+            qty: it.qty,
+            version: next,
+          })}
+        `;
+      }
+      await tx`
+        update bundles set active_version = ${next} where id = ${input.bundle_id}
+      `;
+      return next;
+    });
+
+    revalidatePath("/produk");
+    return {
+      ok: true,
+      message: `Resep diperbarui ke versi ${newVersion} — pesanan lama tetap memakai versi resep saat dipecah.`,
+    };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : String(e) };
+  }
+}
+
 export async function toggleBundle(input: {
   id: string;
   is_active: boolean;

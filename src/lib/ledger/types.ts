@@ -43,6 +43,13 @@ export const MANUAL_OUT_REASONS = [
 
 export type ManualOutReason = (typeof MANUAL_OUT_REASONS)[number];
 
+/** Alasan manual-out yang WAJIB menyertakan referensi (campaign/approval). */
+export const REASONS_NEED_REFERENCE = [
+  "bonus",
+  "promo",
+  "sample",
+] as const satisfies readonly ManualOutReason[];
+
 /** Satu baris ledger yang AKAN ditulis (belum punya id/created_at). */
 export interface LedgerEntry {
   product_id: string;
@@ -56,9 +63,26 @@ export interface LedgerEntry {
   ref_id: string | null;
   operator: string;
   note: string | null;
+  /** Referensi ringan — campaign / approval. Wajib untuk bonus/promo/sample. */
+  reference?: string | null;
   correction_of?: number | null;
   /** Hanya untuk seed/impor riwayat — default: waktu sekarang (DB). */
   created_at?: string;
+}
+
+/** Baris ledger yang SUDAH tersimpan — input untuk Koreksi Entri. */
+export interface StoredLedgerRow {
+  id: number;
+  product_id: string;
+  batch_id: string;
+  qty_delta: number;
+  movement_type: MovementType;
+  reason: LedgerReason;
+  channel: Channel;
+  stock_state: StockState;
+  ref_type: string | null;
+  ref_id: string | null;
+  reference?: string | null;
 }
 
 /** Saldo sellable sebuah batch — input untuk alokasi FEFO. */
