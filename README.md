@@ -31,4 +31,4 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 
 ## Deploy on any hosting
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Check out [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
