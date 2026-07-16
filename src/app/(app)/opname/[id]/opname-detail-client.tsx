@@ -84,10 +84,13 @@ export function OpnameDetailClient({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" asChild>
-            <Link href="/opname" aria-label="Kembali">
-              <ArrowLeft className="size-5" />
-            </Link>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Kembali"
+            render={<Link href="/opname" />}
+          >
+            <ArrowLeft className="size-5" />
           </Button>
           <div>
             <h1 className="flex items-center gap-2 text-xl font-bold">
@@ -117,10 +120,10 @@ export function OpnameDetailClient({
         {isOpen && (
           <div className="flex gap-2">
             <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button variant="outline" size="sm">
-                  Batalkan Sesi
-                </Button>
+              <AlertDialogTrigger
+                render={<Button variant="outline" size="sm" />}
+              >
+                Batalkan Sesi
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
@@ -148,10 +151,15 @@ export function OpnameDetailClient({
             </AlertDialog>
 
             <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button size="sm" disabled={counted.length === 0 || pendingPost}>
-                  Posting Koreksi ({withVariance.length} selisih)
-                </Button>
+              <AlertDialogTrigger
+                render={
+                  <Button
+                    size="sm"
+                    disabled={counted.length === 0 || pendingPost}
+                  />
+                }
+              >
+                Posting Koreksi ({withVariance.length} selisih)
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>

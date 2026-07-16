@@ -103,8 +103,17 @@ export function KeluarClient({ products }: { products: ProductStockRow[] }) {
         <CardContent className="grid gap-4">
           <div className="grid gap-2">
             <Label>Produk</Label>
-            <Select value={productId || undefined} onValueChange={setProductId}>
-              <SelectTrigger>
+            <Select
+              items={Object.fromEntries(
+                products.map((p) => [
+                  p.product_id,
+                  `${p.name} — tersedia ${fmtQty(p.available_qty)}`,
+                ])
+              )}
+              value={productId || null}
+              onValueChange={(v) => setProductId(v ?? "")}
+            >
+              <SelectTrigger className="w-full">
                 <SelectValue placeholder="Pilih produk…" />
               </SelectTrigger>
               <SelectContent>
@@ -165,8 +174,12 @@ export function KeluarClient({ products }: { products: ProductStockRow[] }) {
             </div>
             <div className="grid gap-2">
               <Label>Kanal (lewat mana)</Label>
-              <Select value={channel} onValueChange={setChannel}>
-                <SelectTrigger>
+              <Select
+                items={CHANNEL_LABEL}
+                value={channel}
+                onValueChange={(v) => setChannel(v ?? "offline")}
+              >
+                <SelectTrigger className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

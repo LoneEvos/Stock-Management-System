@@ -6,7 +6,7 @@ import { useState } from "react";
 import { createSupabaseBrowser } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import {
   AlertTriangle,
   ArrowDownToLine,
@@ -157,11 +157,14 @@ export function MobileNav({ userEmail }: { userEmail: string }) {
   return (
     <header className="sticky top-0 z-30 flex items-center gap-3 border-b bg-background/95 px-4 py-3 backdrop-blur lg:hidden">
       <Sheet open={open} onOpenChange={setOpen}>
-        <SheetTrigger asChild>
-          <Button variant="outline" size="icon" aria-label="Menu">
-            <Menu className="size-5" />
-          </Button>
-        </SheetTrigger>
+        <Button
+          variant="outline"
+          size="icon"
+          aria-label="Menu"
+          onClick={() => setOpen(true)}
+        >
+          <Menu className="size-5" />
+        </Button>
         <SheetContent side="left" className="w-72 p-0">
           <SheetTitle className="sr-only">Navigasi</SheetTitle>
           <Brand />

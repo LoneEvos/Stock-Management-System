@@ -87,8 +87,8 @@ export function DashboardCharts({
               />
               <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
               <Tooltip
-                formatter={(value: number, name: string) => [
-                  fmtQty(value),
+                formatter={(value, name) => [
+                  fmtQty(Number(value)),
                   name === "masuk" ? "Masuk" : "Keluar",
                 ]}
                 labelFormatter={(l) => `Tanggal ${shortDay(String(l))}`}
@@ -145,7 +145,7 @@ export function DashboardCharts({
                   axisLine={false}
                 />
                 <Tooltip
-                  formatter={(value: number) => [fmtQty(value), "Unit keluar"]}
+                  formatter={(value) => [fmtQty(Number(value)), "Unit keluar"]}
                 />
                 <Bar
                   dataKey="keluar"
@@ -154,7 +154,7 @@ export function DashboardCharts({
                   label={{
                     position: "right",
                     fontSize: 11,
-                    formatter: (v: number) => fmtQty(v),
+                    formatter: (v) => fmtQty(Number(v)),
                   }}
                 >
                   {topMovers.map((m) => (

@@ -172,11 +172,9 @@ export function LedgerClient({
           </p>
         </div>
         {hasFilter && (
-          <Button variant="outline" size="sm" asChild>
-            <Link href="/ledger">
-              <X className="size-4" />
-              Hapus filter
-            </Link>
+          <Button variant="outline" size="sm" render={<Link href="/ledger" />}>
+            <X className="size-4" />
+            Hapus filter
           </Button>
         )}
       </div>

@@ -294,12 +294,17 @@ function InspectDialog({ ret, items }: { ret: ReturnRow; items: ReturnItem[] }) 
                 </p>
               </div>
               <Select
-                value={decisions[it.id]}
+                items={{
+                  SELLABLE: "Layak jual — kembali ke stok",
+                  DAMAGED: "Rusak — masuk stok rusak",
+                  LOST: "Hilang di ekspedisi",
+                }}
+                value={decisions[it.id] ?? null}
                 onValueChange={(v) =>
-                  setDecisions((d) => ({ ...d, [it.id]: v }))
+                  setDecisions((d) => ({ ...d, [it.id]: v ?? "" }))
                 }
               >
-                <SelectTrigger className="w-44">
+                <SelectTrigger className="w-52">
                   <SelectValue placeholder="Kondisi…" />
                 </SelectTrigger>
                 <SelectContent>

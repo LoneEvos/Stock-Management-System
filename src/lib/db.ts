@@ -1,16 +1,19 @@
 // ============================================================================
 // Koneksi Postgres (Supabase) via connection pooler — mendukung TRANSAKSI
 // sungguhan untuk alur multi-tabel (ship, retur, opname).
+// Inisialisasi LAZY agar build/prerender tidak butuh DATABASE_URL.
 // ============================================================================
 
 import postgres from "postgres";
 
+export type Sql = ReturnType<typeof postgres>;
+export type TransactionSql = postgres.TransactionSql<Record<string, unknown>>;
+
 declare global {
-  // eslint-disable-next-line no-var
-  var __sql: ReturnType<typeof postgres> | undefined;
+  var __sql: Sql | undefined;
 }
 
-function createClient() {
+function createClient(): Sql {
   const url = process.env.DATABASE_URL;
   if (!url) {
     throw new Error(
@@ -25,9 +28,23 @@ function createClient() {
   });
 }
 
-/** Singleton di dev (hot reload), instance baru per lambda di produksi. */
-export const sql = global.__sql ?? createClient();
-if (process.env.NODE_ENV !== "production") global.__sql = sql;
+function getSql(): Sql {
+  if (!global.__sql) {
+    global.__sql = createClient();
+  }
+  return global.__sql;
+}
 
-export type Sql = typeof sql;
-export type TransactionSql = Parameters<Parameters<Sql["begin"]>[1]>[0];
+/** Proxy lazy: koneksi baru dibuat saat kueri pertama, bukan saat import. */
+export const sql: Sql = new Proxy(function () {} as unknown as Sql, {
+  get(_target, prop) {
+    const client = getSql();
+    const value = client[prop as keyof Sql];
+    return typeof value === "function"
+      ? (value as (...args: unknown[]) => unknown).bind(client)
+      : value;
+  },
+  apply(_target, _thisArg, args) {
+    return (getSql() as unknown as (...a: unknown[]) => unknown)(...args);
+  },
+}) as Sql;

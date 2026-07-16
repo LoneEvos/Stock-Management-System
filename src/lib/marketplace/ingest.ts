@@ -290,14 +290,19 @@ async function handleOrderShipped(
     if (e instanceof InsufficientStockError) {
       // Marketplace bilang barang terkirim, catatan bilang stok kurang —
       // ini SELISIH NYATA yang harus muncul, bukan disembunyikan.
+      const [order] = await sql`
+        select id from orders
+        where channel = ${event.channel}
+          and marketplace_order_id = ${event.marketplace_order_id}
+      `;
       await sql`
         insert into anomalies ${sql({
           type: "SHIP_FAILED_INSUFFICIENT_STOCK",
           severity: "CRITICAL",
           title: `Kirim gagal: stok catatan tidak cukup (${event.marketplace_order_id})`,
           description: `${e.message} Pesanan ${event.channel} ${event.marketplace_order_id} gagal diposting SALE_OUT. Periksa stok fisik vs catatan.`,
-          ref_type: "order_external",
-          ref_id: randomUUID(),
+          ref_type: order ? "order" : "order_external",
+          ref_id: order ? order.id : randomUUID(),
           dedupe_key: `ship_failed:${event.channel}:${event.marketplace_order_id}`,
         })}
         on conflict (dedupe_key) do nothing

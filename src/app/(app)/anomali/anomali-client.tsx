@@ -186,11 +186,9 @@ function AnomalyCard({ anomaly }: { anomaly: Anomaly }) {
         )}
         <div className="flex flex-wrap gap-2">
           {href && (
-            <Button variant="outline" size="sm" asChild>
-              <Link href={href}>
-                <ExternalLink className="size-3.5" />
-                Telusuri Sumber
-              </Link>
+            <Button variant="outline" size="sm" render={<Link href={href} />}>
+              <ExternalLink className="size-3.5" />
+              Telusuri Sumber
             </Button>
           )}
           {anomaly.status === "OPEN" && (

@@ -128,3 +128,16 @@
     @apply font-sans;
   }
 }
+
+/* Indeterminate top progress bar (dipakai loading.tsx saat pindah halaman) */
+@keyframes indeterminate-bar {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(320%);
+  }
+}
+.animate-indeterminate {
+  animation: indeterminate-bar 1.15s ease-in-out infinite;
+}

@@ -14,7 +14,6 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -190,12 +189,10 @@ function NewProductDialog() {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button>
-          <Plus className="size-4" />
-          Tambah Produk
-        </Button>
-      </DialogTrigger>
+      <Button onClick={() => setOpen(true)}>
+        <Plus className="size-4" />
+        Tambah Produk
+      </Button>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Tambah Produk Satuan</DialogTitle>
@@ -255,11 +252,14 @@ function EditProductDialog({ product }: { product: ProductStockRow }) {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button variant="ghost" size="icon" aria-label="Ubah">
-          <Pencil className="size-4" />
-        </Button>
-      </DialogTrigger>
+      <Button
+        variant="ghost"
+        size="icon"
+        aria-label="Ubah"
+        onClick={() => setOpen(true)}
+      >
+        <Pencil className="size-4" />
+      </Button>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Ubah Produk</DialogTitle>
@@ -279,10 +279,11 @@ function EditProductDialog({ product }: { product: ProductStockRow }) {
           <div className="grid gap-2">
             <Label>Status</Label>
             <Select
+              items={{ "1": "Aktif", "0": "Nonaktif" }}
               value={active ? "1" : "0"}
               onValueChange={(v) => setActive(v === "1")}
             >
-              <SelectTrigger>
+              <SelectTrigger className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -412,12 +413,10 @@ function NewBundleDialog({ products }: { products: ProductStockRow[] }) {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button>
-          <Plus className="size-4" />
-          Buat Resep Bundle
-        </Button>
-      </DialogTrigger>
+      <Button onClick={() => setOpen(true)}>
+        <Plus className="size-4" />
+        Buat Resep Bundle
+      </Button>
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Buat Resep Bundle</DialogTitle>
@@ -448,10 +447,17 @@ function NewBundleDialog({ products }: { products: ProductStockRow[] }) {
             {items.map((it, idx) => (
               <div key={idx} className="flex gap-2">
                 <Select
-                  value={it.product_id || undefined}
+                  items={Object.fromEntries(
+                    products
+                      .filter((p) => p.is_active)
+                      .map((p) => [p.product_id, p.name])
+                  )}
+                  value={it.product_id || null}
                   onValueChange={(v) =>
                     setItems((arr) =>
-                      arr.map((x, i) => (i === idx ? { ...x, product_id: v } : x))
+                      arr.map((x, i) =>
+                        i === idx ? { ...x, product_id: v ?? "" } : x
+                      )
                     )
                   }
                 >

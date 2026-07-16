@@ -183,11 +183,9 @@ export default async function DashboardPage() {
                 <Timer className="size-4 text-amber-500" />
                 Mendekati Kedaluwarsa (≤ 90 hari)
               </span>
-              <Button variant="ghost" size="sm" asChild>
-                <Link href="/batch">
-                  Semua batch
-                  <ArrowRight className="size-4" />
-                </Link>
+              <Button variant="ghost" size="sm" render={<Link href="/batch" />}>
+                Semua batch
+                <ArrowRight className="size-4" />
               </Button>
             </CardTitle>
           </CardHeader>
@@ -260,11 +258,9 @@ export default async function DashboardPage() {
                 <BookOpenText className="size-4 text-primary" />
                 Pergerakan Terbaru
               </span>
-              <Button variant="ghost" size="sm" asChild>
-                <Link href="/ledger">
-                  Buku besar
-                  <ArrowRight className="size-4" />
-                </Link>
+              <Button variant="ghost" size="sm" render={<Link href="/ledger" />}>
+                Buku besar
+                <ArrowRight className="size-4" />
               </Button>
             </CardTitle>
           </CardHeader>
@@ -311,14 +307,12 @@ export default async function DashboardPage() {
       </div>
 
       <div className="flex flex-wrap gap-2">
-        <Button asChild variant="outline" size="sm">
-          <Link href="/opname">
-            <ClipboardCheck className="size-4" />
-            Mulai Stok Opname
-          </Link>
+        <Button variant="outline" size="sm" render={<Link href="/opname" />}>
+          <ClipboardCheck className="size-4" />
+          Mulai Stok Opname
         </Button>
-        <Button asChild variant="outline" size="sm">
-          <Link href="/simulator">Jalankan Simulasi Marketplace</Link>
+        <Button variant="outline" size="sm" render={<Link href="/simulator" />}>
+          Jalankan Simulasi Marketplace
         </Button>
       </div>
     </div>

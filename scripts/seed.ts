@@ -1,4 +1,4 @@
-/* eslint-disable no-console */
+
 // ============================================================================
 // Seed data demo — jalankan SEKALI setelah migrasi:
 //   npm run seed
@@ -28,7 +28,6 @@ import {
   buildManualOut,
   buildOpnameAdjustment,
   buildReturnIn,
-  buildSaleOut,
 } from "../src/lib/ledger/postings";
 import { ingestEvent } from "../src/lib/marketplace/ingest";
 import type { ManualOutReason } from "../src/lib/ledger/types";

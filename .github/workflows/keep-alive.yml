@@ -1,0 +1,43 @@
+name: Keep Supabase Alive
+
+# Supabase menjeda project free-tier setelah 7 hari tanpa aktivitas —
+# database yang terjeda membuat situs live error sampai di-resume manual.
+# Workflow ini memanggil endpoint rekonsiliasi harian sekali sehari. Endpoint
+# itu mengeksekusi ~10 kueri ke Postgres, sehingga timer inaktivitas ter-reset
+# dan project tetap aktif. Tidak menyimpan password database di GitHub —
+# hanya CRON_SECRET (header Bearer yang sama dipakai Vercel Cron).
+
+on:
+  schedule:
+    # Setiap hari 09:23 UTC (~16:23 WIB). Waktu ganjil sengaja dipilih:
+    # jadwal "tepat jam" sering tertunda saat GitHub sedang sibuk.
+    - cron: "23 9 * * *"
+  workflow_dispatch: {} # tombol "Run workflow" manual di tab Actions
+
+# URL produksi. Ganti bila memakai domain kustom nanti.
+env:
+  APP_URL: https://stock-management-system-topaz.vercel.app
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping daily-check (menjaga database tetap hidup)
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          URL="${APP_URL}/api/jobs/daily-check"
+          echo "Pinging $URL"
+          code=$(curl -sS -o /tmp/resp.json -w "%{http_code}" \
+            --max-time 90 \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            "$URL")
+          echo "HTTP $code"
+          cat /tmp/resp.json || true
+          echo
+          if [ "$code" != "200" ]; then
+            echo "::error::Keep-alive gagal — HTTP $code. Cek CRON_SECRET & status deploy."
+            exit 1
+          fi
+          echo "Database aktif — timer inaktivitas Supabase ter-reset."

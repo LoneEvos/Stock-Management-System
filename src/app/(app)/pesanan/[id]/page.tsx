@@ -45,10 +45,13 @@ export default async function PesananDetailPage({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <div className="flex items-center gap-3">
-            <Button variant="ghost" size="icon" asChild>
-              <Link href="/pesanan" aria-label="Kembali">
-                <ArrowLeft className="size-5" />
-              </Link>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Kembali"
+              render={<Link href="/pesanan" />}
+            >
+              <ArrowLeft className="size-5" />
             </Button>
             <h1 className="font-mono text-xl font-bold">
               {order.marketplace_order_id as string}
@@ -62,11 +65,13 @@ export default async function PesananDetailPage({
             Dibuat {fmtDateTime(order.created_at as string)}
           </p>
         </div>
-        <Button variant="outline" size="sm" asChild>
-          <Link href={`/ledger?ref_type=order&ref=${order.id}`}>
-            <BookOpenText className="size-4" />
-            Lihat di Buku Besar
-          </Link>
+        <Button
+          variant="outline"
+          size="sm"
+          render={<Link href={`/ledger?ref_type=order&ref=${order.id}`} />}
+        >
+          <BookOpenText className="size-4" />
+          Lihat di Buku Besar
         </Button>
       </div>
 

@@ -53,7 +53,7 @@ export default async function LedgerPage({
       rows={JSON.parse(JSON.stringify(rows))}
       contextLabel={contextLabel}
       filteredSum={filteredSum}
-      activeFilters={sp}
+      activeFilters={{ ...sp } as Record<string, string | undefined>}
     />
   );
 }

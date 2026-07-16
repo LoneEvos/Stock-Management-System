@@ -64,7 +64,7 @@ export async function simNewOrder(
     const skus = await candidateSkus();
     if (skus.length === 0)
       return { ok: false, message: "Tidak ada produk dengan stok tersedia." };
-    lines = randomLines(skus.filter((s) => !opts?.forceBundle || true), 3);
+    lines = randomLines(skus, 3);
   }
   const res = await ingestEvent(orderCreated(channel, lines), "simulator", operator);
   refresh();

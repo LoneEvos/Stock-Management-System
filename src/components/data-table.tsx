@@ -91,6 +91,10 @@ export function DataTable<TData, TValue>({
         {facetFilters.map((f) => (
           <Select
             key={f.columnId}
+            items={{
+              __all__: `${f.placeholder}: semua`,
+              ...Object.fromEntries(f.options.map((o) => [o.value, o.label])),
+            }}
             value={
               (table.getColumn(f.columnId)?.getFilterValue() as string) ??
               "__all__"
@@ -98,7 +102,7 @@ export function DataTable<TData, TValue>({
             onValueChange={(v) =>
               table
                 .getColumn(f.columnId)
-                ?.setFilterValue(v === "__all__" ? undefined : v)
+                ?.setFilterValue(v === "__all__" || v === null ? undefined : v)
             }
           >
             <SelectTrigger className="w-[180px]">

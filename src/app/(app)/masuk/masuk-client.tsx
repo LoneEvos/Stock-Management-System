@@ -97,8 +97,14 @@ export function MasukClient({ products }: { products: Product[] }) {
         <CardContent className="grid gap-4">
           <div className="grid gap-2">
             <Label>Produk</Label>
-            <Select value={productId || undefined} onValueChange={setProductId}>
-              <SelectTrigger>
+            <Select
+              items={Object.fromEntries(
+                products.map((p) => [p.id, `${p.name} — ${p.sku}`])
+              )}
+              value={productId || null}
+              onValueChange={(v) => setProductId(v ?? "")}
+            >
+              <SelectTrigger className="w-full">
                 <SelectValue placeholder="Pilih produk…" />
               </SelectTrigger>
               <SelectContent>
