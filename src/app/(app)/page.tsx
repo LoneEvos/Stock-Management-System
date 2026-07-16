@@ -92,6 +92,46 @@ export default async function DashboardPage() {
         </p>
       </div>
 
+      {/* Banner perhatian — hanya muncul saat ada yang genting */}
+      {((stats.critical_anomalies as number) > 0 ||
+        (stats.claims_near as number) > 0) && (
+        <div className="flex flex-col gap-3 rounded-xl border border-destructive/40 bg-destructive/5 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 size-5 shrink-0 text-destructive" />
+            <div>
+              <p className="font-semibold">Perlu perhatian hari ini</p>
+              <p className="text-sm text-muted-foreground">
+                {[
+                  (stats.critical_anomalies as number) > 0 &&
+                    `${stats.critical_anomalies} anomali kritis`,
+                  (stats.claims_near as number) > 0 &&
+                    `${stats.claims_near} klaim TikTok mendekati batas 40 hari`,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </p>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            {(stats.critical_anomalies as number) > 0 && (
+              <Button size="sm" render={<Link href="/anomali" />}>
+                Lihat anomali
+                <ArrowRight className="size-4" />
+              </Button>
+            )}
+            {(stats.claims_near as number) > 0 && (
+              <Button
+                size="sm"
+                variant="outline"
+                render={<Link href="/retur" />}
+              >
+                Retur & klaim
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Stat tiles */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Link href="/produk">
