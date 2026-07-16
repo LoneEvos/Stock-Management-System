@@ -120,7 +120,8 @@ export function DataTable<TData, TValue>({
         ))}
       </div>
 
-      <div className="overflow-x-auto rounded-lg border bg-background">
+      {/* Desktop: tabel penuh (tidak berubah) */}
+      <div className="hidden overflow-x-auto rounded-lg border bg-background lg:block">
         <Table>
           <TableHeader>
             {table.getHeaderGroups().map((hg) => (
@@ -175,6 +176,43 @@ export function DataTable<TData, TValue>({
             )}
           </TableBody>
         </Table>
+      </div>
+
+      {/* Mobile: kartu bertumpuk per baris — tanpa scroll horizontal.
+          Kolom yang sama ditata label→nilai; desktop tetap tabel. */}
+      <div className="space-y-2 lg:hidden">
+        {table.getRowModel().rows.length ? (
+          table.getRowModel().rows.map((row) => (
+            <div
+              key={row.id}
+              className="divide-y rounded-lg border bg-background px-3"
+            >
+              {row.getVisibleCells().map((cell) => {
+                const header = cell.column.columnDef.header;
+                return (
+                  <div
+                    key={cell.id}
+                    className="grid grid-cols-[minmax(0,38%)_1fr] items-start gap-3 py-2"
+                  >
+                    <span className="text-xs font-medium text-muted-foreground">
+                      {typeof header === "string" ? header : null}
+                    </span>
+                    <div className="min-w-0 text-sm">
+                      {flexRender(
+                        cell.column.columnDef.cell,
+                        cell.getContext()
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ))
+        ) : (
+          <div className="rounded-lg border bg-background p-6 text-center text-muted-foreground">
+            {emptyText}
+          </div>
+        )}
       </div>
 
       {table.getPageCount() > 1 && (
