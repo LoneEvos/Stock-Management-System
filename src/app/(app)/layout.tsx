@@ -14,7 +14,7 @@ export default async function AppLayout({
   if (!user) redirect("/login");
 
   return (
-    <div className="min-h-screen bg-muted/30">
+    <div className="min-h-dvh bg-muted/30 lg:min-h-screen">
       <AppSidebar userEmail={user.email ?? ""} />
       <MobileNav userEmail={user.email ?? ""} />
       <main className="px-4 py-6 lg:ml-60 lg:px-8">{children}</main>
