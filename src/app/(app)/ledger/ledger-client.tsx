@@ -5,6 +5,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import type { ColumnDef } from "@tanstack/react-table";
+import { ChannelBadge } from "@/components/channel-badge";
 import { DataTable } from "@/components/data-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -152,28 +153,7 @@ export function LedgerClient({
       {
         accessorKey: "channel",
         header: "Kanal",
-        cell: ({ row }) => {
-          const ch = row.original.channel;
-          const badge =
-            ch === "shopee"
-              ? { bg: "#ee4d2d", fg: "#fff", i: "S" }
-              : ch === "tiktok"
-                ? { bg: "#111827", fg: "#fff", i: "T" }
-                : ch === "offline"
-                  ? { bg: "#e2e5e9", fg: "#475569", i: "O" }
-                  : { bg: "#e2e5e9", fg: "#475569", i: "I" };
-          return (
-            <span className="inline-flex items-center gap-1.5">
-              <span
-                className="inline-flex size-3.5 items-center justify-center rounded-[4px] text-[8px] font-extrabold"
-                style={{ background: badge.bg, color: badge.fg }}
-              >
-                {badge.i}
-              </span>
-              {CHANNEL_LABEL[ch]}
-            </span>
-          );
-        },
+        cell: ({ row }) => <ChannelBadge channel={row.original.channel} />,
         filterFn: "equals",
       },
       {

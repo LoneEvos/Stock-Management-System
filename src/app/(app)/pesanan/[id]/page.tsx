@@ -16,8 +16,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ChannelBadge } from "@/components/channel-badge";
 import {
-  CHANNEL_LABEL,
   MOVEMENT_LABEL,
   ORDER_STATUS_LABEL,
   REASON_LABEL,
@@ -56,7 +56,9 @@ export default async function PesananDetailPage({
             <h1 className="font-mono text-xl font-bold">
               {order.marketplace_order_id as string}
             </h1>
-            <Badge>{CHANNEL_LABEL[order.channel as string]}</Badge>
+            <Badge variant="outline">
+              <ChannelBadge channel={order.channel as string} />
+            </Badge>
             <Badge variant="outline">
               {ORDER_STATUS_LABEL[order.status as string]}
             </Badge>

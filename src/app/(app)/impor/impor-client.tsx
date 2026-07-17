@@ -1,11 +1,10 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -16,19 +15,29 @@ import {
 } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { fmtQty } from "@/lib/format";
 import { importInitialStock, importOrders, type ImportResult } from "./actions";
-import { FileSpreadsheet, FileUp, Upload } from "lucide-react";
+import { Download, FileSpreadsheet, FileUp, Upload } from "lucide-react";
 
 type Cell = string | number | null | undefined;
+
+export interface KnownProduct {
+  sku: string;
+  name: string;
+  has_baseline: boolean;
+}
+
+/** Hasil validasi satu baris pratinjau. */
+interface RowStatus {
+  tone: "ok" | "warn" | "error";
+  label: string;
+}
+
+const STATUS_TEXT: Record<RowStatus["tone"], string> = {
+  ok: "text-emerald-600 font-medium",
+  warn: "text-amber-600 font-medium",
+  error: "text-red-600 font-medium",
+};
 
 /** Parse CSV/XLSX menjadi array-of-rows generik. */
 async function parseFile(file: File): Promise<Record<string, Cell>[]> {
@@ -70,31 +79,144 @@ function parseQty(v: Cell): number {
   return Math.floor(Number(String(v).replace(/[.,\s]/g, "")));
 }
 
-export function ImporClient() {
+/** Unduh CSV di sisi klien (BOM agar Excel membaca UTF-8 dengan benar). */
+function downloadCsv(filename: string, header: string[], lines: string[][]) {
+  const esc = (s: string) =>
+    /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  const csv = [header, ...lines].map((l) => l.map(esc).join(",")).join("\r\n");
+  const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+export function ImporClient({
+  knownProducts,
+  orderSkus,
+}: {
+  knownProducts: KnownProduct[];
+  orderSkus: string[];
+}) {
   return (
     <div className="space-y-4">
       <div>
         <h1 className="text-2xl font-bold">Impor Data</h1>
         <p className="max-w-3xl text-sm text-muted-foreground">
           Jalur masuk data kedua di samping simulator/API. Format CSV atau
-          Excel (.xlsx).
+          Excel (.xlsx). Setiap file divalidasi per baris sebelum diimpor.
         </p>
       </div>
       <div className="grid gap-4 lg:grid-cols-2">
-        <InitialStockCard />
-        <OrdersCard />
+        <InitialStockCard knownProducts={knownProducts} />
+        <OrdersCard orderSkus={orderSkus} />
       </div>
     </div>
   );
 }
 
-function InitialStockCard() {
+/** Log pratinjau pemetaan kolom ala StokTrace: baris bermasalah ditandai. */
+function PreviewLog({
+  headers,
+  rows,
+  total,
+}: {
+  headers: { label: string; align?: "right" }[];
+  rows: { cells: (string | number)[]; status: RowStatus }[];
+  total: number;
+}) {
+  const errorCount = rows.filter((r) => r.status.tone === "error").length;
+  const warnCount = rows.filter((r) => r.status.tone === "warn").length;
+
+  return (
+    <div className="overflow-hidden rounded-lg border">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-muted/40 px-3 py-2">
+        <p className="text-sm font-semibold">Pratinjau pemetaan kolom</p>
+        {errorCount > 0 ? (
+          <span className="rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-semibold text-red-700">
+            {errorCount} baris bermasalah
+          </span>
+        ) : warnCount > 0 ? (
+          <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-700">
+            {warnCount} produk baru
+          </span>
+        ) : (
+          <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">
+            Semua baris valid
+          </span>
+        )}
+      </div>
+      <div className="max-h-64 overflow-y-auto">
+        <table className="w-full text-sm">
+          <thead className="sticky top-0 bg-card">
+            <tr className="border-b text-left text-[11px] uppercase tracking-wide text-muted-foreground">
+              <th className="px-3 py-2 font-medium">Baris</th>
+              {headers.map((h) => (
+                <th
+                  key={h.label}
+                  className={`px-3 py-2 font-medium ${h.align === "right" ? "text-right" : ""}`}
+                >
+                  {h.label}
+                </th>
+              ))}
+              <th className="px-3 py-2 font-medium">Validasi</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.slice(0, 100).map((r, i) => (
+              <tr
+                key={i}
+                className={`border-b last:border-0 ${
+                  r.status.tone === "error"
+                    ? "bg-red-50 dark:bg-red-500/10"
+                    : ""
+                }`}
+              >
+                <td className="tnum px-3 py-2 text-muted-foreground">
+                  {i + 1}
+                </td>
+                {r.cells.map((c, j) => (
+                  <td
+                    key={j}
+                    className={`px-3 py-2 ${headers[j]?.align === "right" ? "tnum text-right" : ""}`}
+                  >
+                    {c === "" ? "—" : c}
+                  </td>
+                ))}
+                <td className={`px-3 py-2 text-xs ${STATUS_TEXT[r.status.tone]}`}>
+                  {r.status.tone === "ok" ? "✓ Valid" : r.status.label}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {total > 100 && (
+        <p className="border-t px-3 py-1.5 text-xs text-muted-foreground">
+          Menampilkan 100 baris pertama dari {fmtQty(total)}.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function InitialStockCard({ knownProducts }: { knownProducts: KnownProduct[] }) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
   const [rows, setRows] = useState<{ name: string; qty: number }[]>([]);
   const [createMissing, setCreateMissing] = useState(true);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [pending, startTransition] = useTransition();
+
+  const lookup = useMemo(() => {
+    const m = new Map<string, KnownProduct>();
+    for (const p of knownProducts) {
+      m.set(p.name.toLowerCase(), p);
+      m.set(p.sku.toLowerCase(), p);
+    }
+    return m;
+  }, [knownProducts]);
 
   async function onFile(file: File) {
     try {
@@ -118,7 +240,43 @@ function InitialStockCard() {
     }
   }
 
-  const validRows = rows.filter((r) => Number.isFinite(r.qty) && r.qty > 0);
+  // Validasi per baris — cermin aturan server (baseline sekali per produk).
+  const statuses = useMemo<RowStatus[]>(
+    () =>
+      rows.map((r) => {
+        if (!Number.isFinite(r.qty) || r.qty <= 0)
+          return { tone: "error", label: "Qty tidak valid" };
+        const known = lookup.get(r.name.toLowerCase());
+        if (known) {
+          if (known.has_baseline)
+            return { tone: "error", label: "Sudah ada baseline" };
+          return { tone: "ok", label: "Valid" };
+        }
+        return createMissing
+          ? { tone: "warn", label: "Produk baru — dibuat otomatis" }
+          : { tone: "error", label: "Produk tidak dikenal" };
+      }),
+    [rows, lookup, createMissing]
+  );
+
+  const validRows = rows.filter((_, i) => statuses[i].tone !== "error");
+  const errorCount = rows.length - validRows.length;
+
+  function downloadErrors() {
+    downloadCsv(
+      "impor-stok-awal-error.csv",
+      ["baris", "nama produk", "qty", "alasan"],
+      rows
+        .map((r, i) => ({ r, i, s: statuses[i] }))
+        .filter((x) => x.s.tone === "error")
+        .map((x) => [
+          String(x.i + 1),
+          x.r.name,
+          Number.isFinite(x.r.qty) ? String(x.r.qty) : "",
+          x.s.label,
+        ])
+    );
+  }
 
   return (
     <Card>
@@ -151,30 +309,6 @@ function InitialStockCard() {
 
         {rows.length > 0 && (
           <>
-            <div className="max-h-64 overflow-y-auto rounded-lg border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Nama Produk</TableHead>
-                    <TableHead className="text-right">Sisa Stok</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {rows.slice(0, 100).map((r, i) => (
-                    <TableRow key={i}>
-                      <TableCell className="text-sm">{r.name}</TableCell>
-                      <TableCell className="text-right font-mono text-sm">
-                        {Number.isFinite(r.qty) && r.qty > 0 ? (
-                          fmtQty(r.qty)
-                        ) : (
-                          <Badge variant="outline">dilewati</Badge>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
             <div className="flex items-center gap-2">
               <Checkbox
                 id="create-missing"
@@ -185,25 +319,51 @@ function InitialStockCard() {
                 Buat otomatis produk yang belum terdaftar
               </Label>
             </div>
-            <Button
-              className="w-full"
-              disabled={pending || validRows.length === 0}
-              onClick={() =>
-                startTransition(async () => {
-                  const res = await importInitialStock(rows, createMissing);
-                  setResult(res);
-                  if (res.ok) {
-                    toast.success(res.message);
-                    router.refresh();
-                  } else toast.error(res.message);
-                })
-              }
-            >
-              <Upload className="size-4" />
-              {pending
-                ? "Mengimpor…"
-                : `Impor ${validRows.length} Baris sebagai Baseline`}
-            </Button>
+
+            <PreviewLog
+              headers={[
+                { label: "Nama Produk" },
+                { label: "Qty", align: "right" },
+              ]}
+              rows={rows.map((r, i) => ({
+                cells: [
+                  r.name,
+                  Number.isFinite(r.qty) && r.qty > 0 ? fmtQty(r.qty) : "—",
+                ],
+                status: statuses[i],
+              }))}
+              total={rows.length}
+            />
+
+            <div className="flex flex-wrap justify-end gap-2">
+              {errorCount > 0 && (
+                <Button variant="outline" onClick={downloadErrors}>
+                  <Download className="size-4" />
+                  Unduh error
+                </Button>
+              )}
+              <Button
+                disabled={pending || validRows.length === 0}
+                onClick={() =>
+                  startTransition(async () => {
+                    const res = await importInitialStock(
+                      validRows,
+                      createMissing
+                    );
+                    setResult(res);
+                    if (res.ok) {
+                      toast.success(res.message);
+                      router.refresh();
+                    } else toast.error(res.message);
+                  })
+                }
+              >
+                <Upload className="size-4" />
+                {pending
+                  ? "Mengimpor…"
+                  : `Impor ${validRows.length} baris valid`}
+              </Button>
+            </div>
           </>
         )}
 
@@ -219,7 +379,7 @@ function InitialStockCard() {
   );
 }
 
-function OrdersCard() {
+function OrdersCard({ orderSkus }: { orderSkus: string[] }) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
   const [rows, setRows] = useState<
@@ -227,6 +387,8 @@ function OrdersCard() {
   >([]);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [pending, startTransition] = useTransition();
+
+  const skuSet = useMemo(() => new Set(orderSkus), [orderSkus]);
 
   async function onFile(file: File) {
     try {
@@ -238,7 +400,7 @@ function OrdersCard() {
           sku: String(pick(r, ["sku", "listing_sku", "sku listing"]) ?? "").trim(),
           qty: parseQty(pick(r, ["qty", "jumlah", "quantity"])),
         }))
-        .filter((r) => r.order_id && r.sku);
+        .filter((r) => r.order_id || r.sku);
       if (parsed.length === 0) {
         toast.error(
           "Tidak menemukan kolom order_id / channel / sku / qty pada file ini."
@@ -250,6 +412,45 @@ function OrdersCard() {
     } catch {
       toast.error("Gagal membaca file — pastikan format CSV/XLSX.");
     }
+  }
+
+  // Validasi per baris — cermin pipeline ingest (SKU produk/bundle aktif).
+  const statuses = useMemo<RowStatus[]>(
+    () =>
+      rows.map((r) => {
+        if (!r.order_id) return { tone: "error", label: "Order ID kosong" };
+        const ch = r.channel.toLowerCase();
+        if (ch !== "shopee" && ch !== "tiktok")
+          return { tone: "error", label: "Kanal tidak dikenal" };
+        if (!r.sku) return { tone: "error", label: "SKU kosong" };
+        if (!skuSet.has(r.sku))
+          return { tone: "error", label: "SKU tidak dikenal" };
+        if (!Number.isFinite(r.qty) || r.qty <= 0)
+          return { tone: "error", label: "Qty tidak valid" };
+        return { tone: "ok", label: "Valid" };
+      }),
+    [rows, skuSet]
+  );
+
+  const validRows = rows.filter((_, i) => statuses[i].tone === "ok");
+  const errorCount = rows.length - validRows.length;
+
+  function downloadErrors() {
+    downloadCsv(
+      "impor-pesanan-error.csv",
+      ["baris", "order_id", "channel", "sku", "qty", "alasan"],
+      rows
+        .map((r, i) => ({ r, i, s: statuses[i] }))
+        .filter((x) => x.s.tone === "error")
+        .map((x) => [
+          String(x.i + 1),
+          x.r.order_id,
+          x.r.channel,
+          x.r.sku,
+          Number.isFinite(x.r.qty) ? String(x.r.qty) : "",
+          x.s.label,
+        ])
+    );
   }
 
   return (
@@ -284,49 +485,51 @@ function OrdersCard() {
 
         {rows.length > 0 && (
           <>
-            <div className="max-h-64 overflow-y-auto rounded-lg border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Order</TableHead>
-                    <TableHead>Kanal</TableHead>
-                    <TableHead>SKU</TableHead>
-                    <TableHead className="text-right">Qty</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {rows.slice(0, 100).map((r, i) => (
-                    <TableRow key={i}>
-                      <TableCell className="font-mono text-xs">
-                        {r.order_id}
-                      </TableCell>
-                      <TableCell className="text-sm">{r.channel}</TableCell>
-                      <TableCell className="font-mono text-xs">{r.sku}</TableCell>
-                      <TableCell className="text-right font-mono text-sm">
-                        {Number.isFinite(r.qty) ? r.qty : "?"}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+            <PreviewLog
+              headers={[
+                { label: "Order" },
+                { label: "Kanal" },
+                { label: "SKU" },
+                { label: "Qty", align: "right" },
+              ]}
+              rows={rows.map((r, i) => ({
+                cells: [
+                  r.order_id,
+                  r.channel,
+                  r.sku,
+                  Number.isFinite(r.qty) ? fmtQty(r.qty) : "—",
+                ],
+                status: statuses[i],
+              }))}
+              total={rows.length}
+            />
+
+            <div className="flex flex-wrap justify-end gap-2">
+              {errorCount > 0 && (
+                <Button variant="outline" onClick={downloadErrors}>
+                  <Download className="size-4" />
+                  Unduh error
+                </Button>
+              )}
+              <Button
+                disabled={pending || validRows.length === 0}
+                onClick={() =>
+                  startTransition(async () => {
+                    const res = await importOrders(validRows);
+                    setResult(res);
+                    if (res.ok) {
+                      toast.success(res.message);
+                      router.refresh();
+                    } else toast.error(res.message);
+                  })
+                }
+              >
+                <Upload className="size-4" />
+                {pending
+                  ? "Mengimpor…"
+                  : `Impor ${validRows.length} baris valid`}
+              </Button>
             </div>
-            <Button
-              className="w-full"
-              disabled={pending}
-              onClick={() =>
-                startTransition(async () => {
-                  const res = await importOrders(rows);
-                  setResult(res);
-                  if (res.ok) {
-                    toast.success(res.message);
-                    router.refresh();
-                  } else toast.error(res.message);
-                })
-              }
-            >
-              <Upload className="size-4" />
-              {pending ? "Mengimpor…" : `Impor ${rows.length} Baris Pesanan`}
-            </Button>
           </>
         )}
 

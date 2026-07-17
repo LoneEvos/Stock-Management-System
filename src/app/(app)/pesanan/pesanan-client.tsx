@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { useMemo } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
+import { ChannelBadge } from "@/components/channel-badge";
 import { DataTable } from "@/components/data-table";
 import { Badge } from "@/components/ui/badge";
-import { CHANNEL_LABEL, ORDER_STATUS_LABEL, fmtDateTime } from "@/lib/format";
+import { ORDER_STATUS_LABEL, fmtDateTime } from "@/lib/format";
 import { ExternalLink } from "lucide-react";
 
 interface OrderRow {
@@ -50,7 +51,7 @@ export function PesananClient({ orders }: { orders: OrderRow[] }) {
       {
         accessorKey: "channel",
         header: "Kanal",
-        cell: ({ row }) => CHANNEL_LABEL[row.original.channel],
+        cell: ({ row }) => <ChannelBadge channel={row.original.channel} />,
         filterFn: "equals",
       },
       {

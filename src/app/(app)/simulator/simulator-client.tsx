@@ -21,7 +21,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { CHANNEL_LABEL, ORDER_STATUS_LABEL, fmtDateTime } from "@/lib/format";
+import { ChannelBadge } from "@/components/channel-badge";
+import { ORDER_STATUS_LABEL, fmtDateTime } from "@/lib/format";
 import type { IngestResult, MarketplaceChannel } from "@/lib/marketplace/types";
 import {
   simBusyDay,
@@ -216,7 +217,9 @@ export function SimulatorClient({ orders }: { orders: SimOrder[] }) {
                       {o.marketplace_order_id}
                     </Link>
                   </TableCell>
-                  <TableCell>{CHANNEL_LABEL[o.channel]}</TableCell>
+                  <TableCell>
+                    <ChannelBadge channel={o.channel} />
+                  </TableCell>
                   <TableCell>
                     <Badge
                       variant={

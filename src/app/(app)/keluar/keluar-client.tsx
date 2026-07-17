@@ -28,6 +28,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { ChannelBadge } from "@/components/channel-badge";
 import { CHANNEL_LABEL, REASON_LABEL, fmtQty } from "@/lib/format";
 import type { ProductStockRow } from "@/lib/queries";
 import { postManualOut } from "./actions";
@@ -264,8 +265,11 @@ export function KeluarClient({ products }: { products: ProductStockRow[] }) {
             <p>
               Alasan: <b>{REASON_LABEL[reason] ?? "—"}</b>
             </p>
-            <p>
-              Kanal: <b>{CHANNEL_LABEL[channel]}</b>
+            <p className="flex items-center gap-1">
+              Kanal:{" "}
+              <b>
+                <ChannelBadge channel={channel} />
+              </b>
             </p>
             {reference.trim() && (
               <p>

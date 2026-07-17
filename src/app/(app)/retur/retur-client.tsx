@@ -28,8 +28,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ChannelBadge } from "@/components/channel-badge";
 import {
-  CHANNEL_LABEL,
   CONDITION_LABEL,
   RETURN_STATUS_LABEL,
   daysUntil,
@@ -206,7 +206,9 @@ function ReturnCard({
               {ret.marketplace_order_id}
               <ExternalLink className="size-3.5" />
             </Link>
-            <Badge>{CHANNEL_LABEL[ret.channel]}</Badge>
+            <Badge variant="outline">
+              <ChannelBadge channel={ret.channel} />
+            </Badge>
             <Badge
               variant={ret.status === "RECEIVED" ? "default" : "outline"}
             >
