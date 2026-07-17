@@ -133,81 +133,71 @@ export default async function DashboardPage() {
         </div>
       )}
 
-      {/* Stat tiles */}
+      {/* KPI tiles — pola desain StokTrace: chip ikon ber-tint + angka tnum */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Link href="/produk">
-          <Card className="h-full transition-colors hover:bg-muted/50">
-            <CardHeader className="pb-1">
-              <CardDescription className="flex items-center gap-1.5">
-                <Boxes className="size-4" />
-                Stok Layak Jual
-              </CardDescription>
-              <CardTitle className="font-mono text-2xl">
-                {fmtQty(stats.sellable_units as number)}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="text-xs text-muted-foreground">
-              {stats.active_products as number} SKU aktif ·{" "}
+          <Card className="h-full gap-2 p-4 transition-all hover:border-[#d3d7dc] hover:shadow-[0_4px_14px_rgba(15,23,42,.05)]">
+            <span className="flex size-[30px] items-center justify-center rounded-lg bg-accent">
+              <Boxes className="size-4 text-primary" />
+            </span>
+            <p className="tnum text-2xl font-bold leading-none tracking-[-0.6px]">
+              {fmtQty(stats.sellable_units as number)}
+            </p>
+            <p className="text-[11.5px] leading-tight text-muted-foreground">
+              Stok layak jual · {stats.active_products as number} SKU ·{" "}
               {fmtQty(stats.reserved_units as number)} direservasi
-            </CardContent>
+            </p>
           </Card>
         </Link>
 
         <Link href="/anomali">
           <Card
-            className={`h-full transition-colors hover:bg-muted/50 ${(stats.critical_anomalies as number) > 0 ? "border-destructive/60" : ""}`}
+            className={`h-full gap-2 p-4 transition-all hover:border-[#d3d7dc] hover:shadow-[0_4px_14px_rgba(15,23,42,.05)] ${(stats.critical_anomalies as number) > 0 ? "border-destructive/50" : ""}`}
           >
-            <CardHeader className="pb-1">
-              <CardDescription className="flex items-center gap-1.5">
-                <AlertTriangle className="size-4" />
-                Anomali Terbuka
-              </CardDescription>
-              <CardTitle
-                className={`font-mono text-2xl ${(stats.open_anomalies as number) > 0 ? "text-destructive" : ""}`}
-              >
-                {stats.open_anomalies as number}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="text-xs text-muted-foreground">
-              {stats.critical_anomalies as number} kritis — worklist harian
-            </CardContent>
+            <span className="flex size-[30px] items-center justify-center rounded-lg bg-amber-100">
+              <AlertTriangle className="size-4 text-amber-600" />
+            </span>
+            <p
+              className={`tnum text-2xl font-bold leading-none tracking-[-0.6px] ${(stats.open_anomalies as number) > 0 ? "text-destructive" : ""}`}
+            >
+              {stats.open_anomalies as number}
+            </p>
+            <p className="text-[11.5px] leading-tight text-muted-foreground">
+              Anomali terbuka · {stats.critical_anomalies as number} kritis —
+              worklist harian
+            </p>
           </Card>
         </Link>
 
         <Link href="/retur">
-          <Card className="h-full transition-colors hover:bg-muted/50">
-            <CardHeader className="pb-1">
-              <CardDescription className="flex items-center gap-1.5">
-                <RotateCcw className="size-4" />
-                Retur Menunggu Inspeksi
-              </CardDescription>
-              <CardTitle className="font-mono text-2xl">
-                {stats.returns_waiting as number}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="text-xs text-muted-foreground">
-              {stats.claims_near as number} klaim TikTok mendekati batas 40 hari
-            </CardContent>
+          <Card className="h-full gap-2 p-4 transition-all hover:border-[#d3d7dc] hover:shadow-[0_4px_14px_rgba(15,23,42,.05)]">
+            <span className="flex size-[30px] items-center justify-center rounded-lg bg-blue-100">
+              <RotateCcw className="size-4 text-blue-600" />
+            </span>
+            <p className="tnum text-2xl font-bold leading-none tracking-[-0.6px]">
+              {stats.returns_waiting as number}
+            </p>
+            <p className="text-[11.5px] leading-tight text-muted-foreground">
+              Retur menunggu inspeksi · {stats.claims_near as number} klaim
+              TikTok dekat batas 40 hari
+            </p>
           </Card>
         </Link>
 
         <Link href="/retur">
-          <Card className="h-full transition-colors hover:bg-muted/50">
-            <CardHeader className="pb-1">
-              <CardDescription className="flex items-center gap-1.5">
-                <Boxes className="size-4" />
-                Retur Rusak / Hilang
-              </CardDescription>
-              <CardTitle className="font-mono text-2xl">
-                {fmtQty(
-                  (stats.damaged_return_units as number) +
-                    (stats.lost_return_units as number)
-                )}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="text-xs text-muted-foreground">
-              record audit/klaim — tanpa pergerakan stok kedua
-            </CardContent>
+          <Card className="h-full gap-2 p-4 transition-all hover:border-[#d3d7dc] hover:shadow-[0_4px_14px_rgba(15,23,42,.05)]">
+            <span className="flex size-[30px] items-center justify-center rounded-lg bg-red-100">
+              <Boxes className="size-4 text-red-600" />
+            </span>
+            <p className="tnum text-2xl font-bold leading-none tracking-[-0.6px]">
+              {fmtQty(
+                (stats.damaged_return_units as number) +
+                  (stats.lost_return_units as number)
+              )}
+            </p>
+            <p className="text-[11.5px] leading-tight text-muted-foreground">
+              Retur rusak / hilang — record audit, tanpa pergerakan stok kedua
+            </p>
           </Card>
         </Link>
       </div>

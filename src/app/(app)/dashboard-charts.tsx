@@ -22,9 +22,11 @@ import {
 } from "@/components/ui/card";
 import { fmtQty } from "@/lib/format";
 
-// Palet tervalidasi (CVD-safe, kontras ≥3:1 di light & dark):
-const MASUK = "#2563eb"; // biru — barang masuk
-const KELUAR = "#ea580c"; // oranye — barang keluar
+// Warna semantik bahasa desain StokTrace (legenda berlabel teks, bukan
+// warna-saja): hijau = masuk, merah = keluar, teal = aksen brand.
+const MASUK = "#16a34a";
+const KELUAR = "#dc2626";
+const AKSEN = "#0d6e6e";
 
 interface DailyRow {
   day: string;
@@ -158,7 +160,7 @@ export function DashboardCharts({
                   }}
                 >
                   {topMovers.map((m) => (
-                    <Cell key={m.product_id} fill={MASUK} cursor="pointer" />
+                    <Cell key={m.product_id} fill={AKSEN} cursor="pointer" />
                   ))}
                 </Bar>
               </BarChart>
