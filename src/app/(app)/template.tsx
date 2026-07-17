@@ -1,5 +1,5 @@
 // Template di-mount ulang pada SETIAP navigasi (beda dengan layout) —
-// dipakai untuk animasi masuk fade-up ala StokTrace di semua halaman.
+// seksi-seksi halaman naik berurutan (stagger fade-up) ala StokTrace.
 export default function Template({ children }: { children: React.ReactNode }) {
-  return <div className="animate-fade-up">{children}</div>;
+  return <div className="stagger-up">{children}</div>;
 }
