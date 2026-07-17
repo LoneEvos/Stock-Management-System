@@ -1,6 +1,8 @@
 -- ============================================================================
--- 0003 — Phase 2 (Sync Update v2, 13 Jun 2026)
+-- 0003 — Phase 2 (Sync Update v2, 13 Jun 2026) — RERUN-SAFE (idempotent)
 -- Jalankan SETELAH 0001_init.sql dan 0002_security_hardening.sql.
+-- Aman dijalankan berulang: objek yang sudah ada dilewati/diganti identik,
+-- backfill me-resync summary ke kebenaran ledger.
 --
 -- Isi:
 --  1. stock_balances: saldo O(1) yang di-maintain trigger dari ledger
@@ -19,10 +21,10 @@
 -- 1. SUMMARY SALDO O(1)
 -- ---------------------------------------------------------------------------
 
-create table stock_balances (
-  product_id  uuid not null references products(id),
-  batch_id    uuid not null references batches(id),
-  stock_state stock_state not null,
+create table if not exists public.stock_balances (
+  product_id  uuid not null references public.products(id),
+  batch_id    uuid not null references public.batches(id),
+  stock_state public.stock_state not null,
   qty         integer not null default 0,
   updated_at  timestamptz not null default now(),
   primary key (product_id, batch_id, stock_state)
@@ -32,13 +34,13 @@ create table stock_balances (
 -- NAMA trigger penting: 'ledger_apply_summary' < 'ledger_balance_guard'
 -- (trigger statement-level AFTER berurutan alfabetis) → summary selalu
 -- ter-update SEBELUM guard membacanya.
-create or replace function trg_ledger_apply_summary() returns trigger
+create or replace function public.trg_ledger_apply_summary() returns trigger
 language plpgsql
 set search_path = ''
 as $$
 begin
   insert into public.stock_balances (product_id, batch_id, stock_state, qty)
-  select i.product_id, i.batch_id, i.stock_state, sum(i.qty_delta)
+  select i.product_id, i.batch_id, i.stock_state, sum(i.qty_delta)::int
   from inserted i
   group by i.product_id, i.batch_id, i.stock_state
   on conflict (product_id, batch_id, stock_state)
@@ -47,29 +49,34 @@ begin
   return null;
 end $$;
 
+drop trigger if exists ledger_apply_summary on public.stock_ledger;
 create trigger ledger_apply_summary
-  after insert on stock_ledger
+  after insert on public.stock_ledger
   referencing new table as inserted
-  for each statement execute function trg_ledger_apply_summary();
+  for each statement execute function public.trg_ledger_apply_summary();
 
--- Backfill dari ledger yang sudah ada.
-insert into stock_balances (product_id, batch_id, stock_state, qty)
-select product_id, batch_id, stock_state, sum(qty_delta)::int
-from stock_ledger
-group by product_id, batch_id, stock_state;
+-- Backfill/resync dari ledger (rerun me-reset qty ke kebenaran ledger,
+-- tidak menggandakan).
+insert into public.stock_balances (product_id, batch_id, stock_state, qty, updated_at)
+select product_id, batch_id, stock_state, sum(qty_delta)::int, now()
+from public.stock_ledger
+group by product_id, batch_id, stock_state
+on conflict (product_id, batch_id, stock_state)
+do update set qty = excluded.qty, updated_at = now();
 
 -- Akses: baca untuk user login, tanpa tulis lewat API (hanya trigger/server).
-alter table stock_balances enable row level security;
-create policy select_stock_balances on stock_balances
+alter table public.stock_balances enable row level security;
+drop policy if exists select_stock_balances on public.stock_balances;
+create policy select_stock_balances on public.stock_balances
   for select to authenticated using (true);
-revoke insert, update, delete, truncate on stock_balances from anon, authenticated;
-revoke select on stock_balances from anon;
+revoke insert, update, delete, truncate on public.stock_balances from anon, authenticated;
+revoke select on public.stock_balances from anon;
 
 -- ---------------------------------------------------------------------------
 -- 2. GUARD SALDO NON-NEGATIF → baca summary (bukan SUM ledger)
 -- ---------------------------------------------------------------------------
 
-create or replace function trg_ledger_balance_guard() returns trigger
+create or replace function public.trg_ledger_balance_guard() returns trigger
 language plpgsql
 set search_path = ''
 as $$
@@ -92,8 +99,19 @@ begin
   return null;
 end $$;
 
+-- Trigger guard dibuat di 0001 dengan fungsi lama (SUM ledger); pastikan
+-- terpasang dan memakai fungsi baru di atas (baca summary).
+drop trigger if exists ledger_balance_guard on public.stock_ledger;
+create trigger ledger_balance_guard
+  after insert on public.stock_ledger
+  referencing new table as inserted
+  for each statement execute function public.trg_ledger_balance_guard();
+
 -- Index komposit untuk verifikasi ulang saldo dari ledger (pemeriksaan harian).
-create index idx_ledger_key on stock_ledger (product_id, batch_id, stock_state);
+-- CATATAN: nama index pada IF NOT EXISTS tidak boleh berkualifikasi skema —
+-- skema mengikuti tabelnya.
+create index if not exists idx_ledger_key
+  on public.stock_ledger (product_id, batch_id, stock_state);
 
 -- ---------------------------------------------------------------------------
 -- 3. KOREKSI ENTRI (sumber selisih ke-5: salah input admin)
@@ -102,8 +120,9 @@ create index idx_ledger_key on stock_ledger (product_id, batch_id, stock_state);
 -- ---------------------------------------------------------------------------
 
 -- Arah qty bebas untuk entri koreksi (pembalik), tetap ketat untuk lainnya.
-alter table stock_ledger drop constraint valid_sign_for_type;
-alter table stock_ledger add constraint valid_sign_for_type check (
+-- Pasangan drop-if-exists + add = idempoten.
+alter table public.stock_ledger drop constraint if exists valid_sign_for_type;
+alter table public.stock_ledger add constraint valid_sign_for_type check (
   (correction_of is not null) or
   (movement_type in ('INBOUND_MAKLON', 'INITIAL_COUNT', 'RETURN_IN') and qty_delta > 0) or
   (movement_type in ('SALE_OUT', 'MANUAL_OUT', 'WRITE_OFF')          and qty_delta < 0) or
@@ -112,7 +131,7 @@ alter table stock_ledger add constraint valid_sign_for_type check (
 
 -- Validasi koreksi di level DB: pembalik harus persis cermin entri asal,
 -- dan satu entri hanya bisa dikoreksi SEKALI.
-create or replace function trg_validate_correction() returns trigger
+create or replace function public.trg_validate_correction() returns trigger
 language plpgsql
 set search_path = ''
 as $$
@@ -145,11 +164,13 @@ begin
   return new;
 end $$;
 
+drop trigger if exists ledger_validate_correction on public.stock_ledger;
 create trigger ledger_validate_correction
-  before insert on stock_ledger
-  for each row execute function trg_validate_correction();
+  before insert on public.stock_ledger
+  for each row execute function public.trg_validate_correction();
 
-create index idx_ledger_correction on stock_ledger (correction_of)
+create index if not exists idx_ledger_correction
+  on public.stock_ledger (correction_of)
   where correction_of is not null;
 
 -- ---------------------------------------------------------------------------
@@ -157,39 +178,58 @@ create index idx_ledger_correction on stock_ledger (correction_of)
 --    DIJELASKAN: campaign apa / disetujui siapa — bukan sekadar tercatat)
 -- ---------------------------------------------------------------------------
 
-alter table stock_ledger add column reference text;
+alter table public.stock_ledger add column if not exists reference text;
 
 -- NOT VALID: baris lama (seed/riwayat) dibiarkan; baris BARU wajib patuh.
-alter table stock_ledger add constraint manual_out_needs_reference
-  check (
-    correction_of is not null
-    or not (movement_type = 'MANUAL_OUT' and reason in ('bonus', 'promo', 'sample'))
-    or (reference is not null and length(trim(reference)) > 0)
-  ) not valid;
+-- ADD CONSTRAINT tidak punya IF NOT EXISTS → dibungkus DO-block.
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'manual_out_needs_reference'
+      and conrelid = 'public.stock_ledger'::regclass
+  ) then
+    alter table public.stock_ledger add constraint manual_out_needs_reference
+      check (
+        correction_of is not null
+        or not (movement_type = 'MANUAL_OUT' and reason in ('bonus', 'promo', 'sample'))
+        or (reference is not null and length(trim(reference)) > 0)
+      ) not valid;
+  end if;
+end $$;
 
 -- ---------------------------------------------------------------------------
 -- 5. VERSIONING RESEP BUNDLE (append-only juga: edit = versi baru)
 -- ---------------------------------------------------------------------------
 
-alter table bundles      add column active_version integer not null default 1;
-alter table bundle_items add column version        integer not null default 1;
+alter table public.bundles      add column if not exists active_version integer not null default 1;
+alter table public.bundle_items add column if not exists version        integer not null default 1;
 
-alter table bundle_items drop constraint if exists bundle_items_bundle_id_product_id_key;
-alter table bundle_items add constraint bundle_items_unique_per_version
-  unique (bundle_id, version, product_id);
+alter table public.bundle_items drop constraint if exists bundle_items_bundle_id_product_id_key;
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'bundle_items_unique_per_version'
+      and conrelid = 'public.bundle_items'::regclass
+  ) then
+    alter table public.bundle_items add constraint bundle_items_unique_per_version
+      unique (bundle_id, version, product_id);
+  end if;
+end $$;
 
 -- Pesanan mencatat versi resep yang dipakai saat pecah bundle.
-alter table order_items add column bundle_version integer;
+alter table public.order_items add column if not exists bundle_version integer;
 
 -- ---------------------------------------------------------------------------
 -- 6. VIEWS → baca summary; v_product_stock + baseline_unverified
 -- ---------------------------------------------------------------------------
 
-create or replace view v_stock_balance as
+create or replace view public.v_stock_balance as
 select product_id, batch_id, stock_state, qty
-from stock_balances;
+from public.stock_balances;
 
-create or replace view v_batch_stock as
+create or replace view public.v_batch_stock as
 select
   b.id as batch_id,
   b.product_id,
@@ -199,13 +239,13 @@ select
   coalesce(sum(sb.qty) filter (where sb.stock_state = 'SELLABLE'), 0)::int   as sellable_qty,
   coalesce(sum(sb.qty) filter (where sb.stock_state = 'DAMAGED'), 0)::int    as damaged_qty,
   coalesce(sum(sb.qty) filter (where sb.stock_state = 'QUARANTINE'), 0)::int as quarantine_qty
-from batches b
-left join stock_balances sb on sb.batch_id = b.id
+from public.batches b
+left join public.stock_balances sb on sb.batch_id = b.id
 group by b.id;
 
 -- baseline_unverified: punya entri stok awal (INITIAL_COUNT) tapi belum pernah
 -- tersentuh opname terposting → angka awal masih PERKIRAAN (keputusan klien #5).
-create or replace view v_product_stock as
+create or replace view public.v_product_stock as
 select
   p.id as product_id,
   p.sku,
@@ -217,30 +257,30 @@ select
   coalesce(r.reserved, 0)::int    as reserved_qty,
   (coalesce(sb.sellable, 0) - coalesce(r.reserved, 0))::int as available_qty,
   (
-    exists (select 1 from stock_ledger l
+    exists (select 1 from public.stock_ledger l
             where l.product_id = p.id and l.movement_type = 'INITIAL_COUNT')
-    and not exists (select 1 from opname_counts oc
-                    join opname_sessions os on os.id = oc.session_id
+    and not exists (select 1 from public.opname_counts oc
+                    join public.opname_sessions os on os.id = oc.session_id
                     where oc.product_id = p.id and os.status = 'POSTED')
   ) as baseline_unverified
-from products p
+from public.products p
 left join (
   select product_id,
          sum(qty) filter (where stock_state = 'SELLABLE')   as sellable,
          sum(qty) filter (where stock_state = 'DAMAGED')    as damaged,
          sum(qty) filter (where stock_state = 'QUARANTINE') as quarantine
-  from stock_balances
+  from public.stock_balances
   group by product_id
 ) sb on sb.product_id = p.id
 left join (
   select product_id, sum(qty) as reserved
-  from reservations
+  from public.reservations
   where status = 'ACTIVE'
   group by product_id
 ) r on r.product_id = p.id;
 
 -- Pertahankan pengerasan 0002 pada view yang dibangun ulang.
-alter view v_stock_balance set (security_invoker = on);
-alter view v_batch_stock   set (security_invoker = on);
-alter view v_product_stock set (security_invoker = on);
-revoke select on v_stock_balance, v_batch_stock, v_product_stock from anon;
+alter view public.v_stock_balance set (security_invoker = on);
+alter view public.v_batch_stock   set (security_invoker = on);
+alter view public.v_product_stock set (security_invoker = on);
+revoke select on public.v_stock_balance, public.v_batch_stock, public.v_product_stock from anon;
