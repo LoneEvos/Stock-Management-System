@@ -133,7 +133,11 @@ function PreviewLog({
     <div className="overflow-hidden rounded-lg border">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-muted/40 px-3 py-2">
         <p className="text-sm font-semibold">Pratinjau pemetaan kolom</p>
-        {errorCount > 0 ? (
+        {rows.length === 0 ? (
+          <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-semibold text-muted-foreground">
+            Menunggu file
+          </span>
+        ) : errorCount > 0 ? (
           <span className="rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-semibold text-red-700">
             {errorCount} baris bermasalah
           </span>
@@ -164,6 +168,17 @@ function PreviewLog({
             </tr>
           </thead>
           <tbody>
+            {rows.length === 0 && (
+              <tr>
+                <td
+                  colSpan={headers.length + 2}
+                  className="px-3 py-8 text-center text-sm text-muted-foreground"
+                >
+                  Belum ada file — hasil validasi per baris akan muncul di
+                  sini setelah file dipilih.
+                </td>
+              </tr>
+            )}
             {rows.slice(0, 100).map((r, i) => (
               <tr
                 key={i}
@@ -307,64 +322,62 @@ function InitialStockCard({ knownProducts }: { knownProducts: KnownProduct[] }) 
           Pilih File CSV / Excel
         </Button>
 
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id="create-missing"
+            checked={createMissing}
+            onCheckedChange={(v) => setCreateMissing(v === true)}
+          />
+          <Label htmlFor="create-missing" className="text-sm font-normal">
+            Buat otomatis produk yang belum terdaftar
+          </Label>
+        </div>
+
+        <PreviewLog
+          headers={[
+            { label: "Nama Produk" },
+            { label: "Qty", align: "right" },
+          ]}
+          rows={rows.map((r, i) => ({
+            cells: [
+              r.name,
+              Number.isFinite(r.qty) && r.qty > 0 ? fmtQty(r.qty) : "—",
+            ],
+            status: statuses[i],
+          }))}
+          total={rows.length}
+        />
+
         {rows.length > 0 && (
-          <>
-            <div className="flex items-center gap-2">
-              <Checkbox
-                id="create-missing"
-                checked={createMissing}
-                onCheckedChange={(v) => setCreateMissing(v === true)}
-              />
-              <Label htmlFor="create-missing" className="text-sm font-normal">
-                Buat otomatis produk yang belum terdaftar
-              </Label>
-            </div>
-
-            <PreviewLog
-              headers={[
-                { label: "Nama Produk" },
-                { label: "Qty", align: "right" },
-              ]}
-              rows={rows.map((r, i) => ({
-                cells: [
-                  r.name,
-                  Number.isFinite(r.qty) && r.qty > 0 ? fmtQty(r.qty) : "—",
-                ],
-                status: statuses[i],
-              }))}
-              total={rows.length}
-            />
-
-            <div className="flex flex-wrap justify-end gap-2">
-              {errorCount > 0 && (
-                <Button variant="outline" onClick={downloadErrors}>
-                  <Download className="size-4" />
-                  Unduh error
-                </Button>
-              )}
-              <Button
-                disabled={pending || validRows.length === 0}
-                onClick={() =>
-                  startTransition(async () => {
-                    const res = await importInitialStock(
-                      validRows,
-                      createMissing
-                    );
-                    setResult(res);
-                    if (res.ok) {
-                      toast.success(res.message);
-                      router.refresh();
-                    } else toast.error(res.message);
-                  })
-                }
-              >
-                <Upload className="size-4" />
-                {pending
-                  ? "Mengimpor…"
-                  : `Impor ${validRows.length} baris valid`}
+          <div className="flex flex-wrap justify-end gap-2">
+            {errorCount > 0 && (
+              <Button variant="outline" onClick={downloadErrors}>
+                <Download className="size-4" />
+                Unduh error
               </Button>
-            </div>
-          </>
+            )}
+            <Button
+              disabled={pending || validRows.length === 0}
+              onClick={() =>
+                startTransition(async () => {
+                  const res = await importInitialStock(
+                    validRows,
+                    createMissing
+                  );
+                  setResult(res);
+                  if (res.ok) {
+                    toast.success(res.message);
+                    router.refresh();
+                  } else toast.error(res.message);
+                })
+              }
+            >
+              <Upload className="size-4" />
+              {pending
+                ? "Mengimpor…"
+                : `Impor ${validRows.length} baris valid`}
+            </Button>
+          </div>
         )}
 
         {result?.detail && result.detail.length > 0 && (
@@ -483,54 +496,52 @@ function OrdersCard({ orderSkus }: { orderSkus: string[] }) {
           Pilih File CSV / Excel
         </Button>
 
-        {rows.length > 0 && (
-          <>
-            <PreviewLog
-              headers={[
-                { label: "Order" },
-                { label: "Kanal" },
-                { label: "SKU" },
-                { label: "Qty", align: "right" },
-              ]}
-              rows={rows.map((r, i) => ({
-                cells: [
-                  r.order_id,
-                  r.channel,
-                  r.sku,
-                  Number.isFinite(r.qty) ? fmtQty(r.qty) : "—",
-                ],
-                status: statuses[i],
-              }))}
-              total={rows.length}
-            />
+        <PreviewLog
+          headers={[
+            { label: "Order" },
+            { label: "Kanal" },
+            { label: "SKU" },
+            { label: "Qty", align: "right" },
+          ]}
+          rows={rows.map((r, i) => ({
+            cells: [
+              r.order_id,
+              r.channel,
+              r.sku,
+              Number.isFinite(r.qty) ? fmtQty(r.qty) : "—",
+            ],
+            status: statuses[i],
+          }))}
+          total={rows.length}
+        />
 
-            <div className="flex flex-wrap justify-end gap-2">
-              {errorCount > 0 && (
-                <Button variant="outline" onClick={downloadErrors}>
-                  <Download className="size-4" />
-                  Unduh error
-                </Button>
-              )}
-              <Button
-                disabled={pending || validRows.length === 0}
-                onClick={() =>
-                  startTransition(async () => {
-                    const res = await importOrders(validRows);
-                    setResult(res);
-                    if (res.ok) {
-                      toast.success(res.message);
-                      router.refresh();
-                    } else toast.error(res.message);
-                  })
-                }
-              >
-                <Upload className="size-4" />
-                {pending
-                  ? "Mengimpor…"
-                  : `Impor ${validRows.length} baris valid`}
+        {rows.length > 0 && (
+          <div className="flex flex-wrap justify-end gap-2">
+            {errorCount > 0 && (
+              <Button variant="outline" onClick={downloadErrors}>
+                <Download className="size-4" />
+                Unduh error
               </Button>
-            </div>
-          </>
+            )}
+            <Button
+              disabled={pending || validRows.length === 0}
+              onClick={() =>
+                startTransition(async () => {
+                  const res = await importOrders(validRows);
+                  setResult(res);
+                  if (res.ok) {
+                    toast.success(res.message);
+                    router.refresh();
+                  } else toast.error(res.message);
+                })
+              }
+            >
+              <Upload className="size-4" />
+              {pending
+                ? "Mengimpor…"
+                : `Impor ${validRows.length} baris valid`}
+            </Button>
+          </div>
         )}
 
         {result?.detail && result.detail.length > 0 && (
