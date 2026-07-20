@@ -246,6 +246,12 @@ export function OpnameDetailClient({
           </TableBody>
         </Table>
       </div>
+
+      <p className="text-xs text-muted-foreground">
+        Selisih tidak mengubah angka lama — saat sesi diposting, tiap selisih
+        menjadi entri &ldquo;Koreksi Opname&rdquo; baru di buku besar yang
+        tetap bisa ditelusuri.
+      </p>
     </div>
   );
 }

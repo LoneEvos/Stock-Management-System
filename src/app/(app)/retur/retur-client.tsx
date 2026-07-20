@@ -323,6 +323,23 @@ function InspectDialog({ ret, items }: { ret: ReturnRow; items: ReturnItem[] }) 
               </Select>
             </div>
           ))}
+          {/* Efek tiap kondisi ke buku besar — aturan anti hitung ganda */}
+          <div className="space-y-1 rounded-lg bg-muted p-3 text-xs text-muted-foreground">
+            <p>
+              <b className="text-emerald-600">Layak jual</b> — kembali ke stok
+              sebagai batch retur baru (paling akhir dalam antrean FEFO).
+            </p>
+            <p>
+              <b className="text-red-600">Rusak</b> — tidak menambah stok:
+              stok sudah terpotong saat pengiriman, jadi hanya dicatat sebagai
+              kerugian.
+            </p>
+            <p>
+              <b className="text-amber-600">Hilang</b> — kerugian juga,
+              dipisah dari rusak karena menjadi dasar klaim
+              ekspedisi/marketplace.
+            </p>
+          </div>
           {Object.values(decisions).includes("LOST") &&
             ret.channel === "tiktok" && (
               <p className="flex items-start gap-2 rounded-lg bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-400">

@@ -85,6 +85,29 @@ export function LedgerClient({
 }) {
   const hasFilter = Object.values(activeFilters).some(Boolean);
 
+  // Saldo berjalan hanya bermakna saat drill-down SATU produk/batch dengan
+  // riwayat penuh (tanpa filter lain yang memotong baris, tidak kena limit) —
+  // baris teratas = stok saat ini, terbentuk dari penjumlahan di bawahnya.
+  const showSaldo =
+    Boolean(activeFilters.product || activeFilters.batch) &&
+    !activeFilters.type &&
+    !activeFilters.reason &&
+    !activeFilters.channel &&
+    !activeFilters.state &&
+    !activeFilters.ref_type &&
+    !activeFilters.ref &&
+    rows.length < 1000;
+
+  const saldoById = useMemo(() => {
+    const m = new Map<number, number>();
+    let acc = 0;
+    for (let i = rows.length - 1; i >= 0; i--) {
+      acc += rows[i].qty_delta;
+      m.set(rows[i].id, acc);
+    }
+    return m;
+  }, [rows]);
+
   const columns = useMemo<ColumnDef<LedgerRow>[]>(
     () => [
       {
@@ -122,6 +145,19 @@ export function LedgerClient({
           );
         },
       },
+      ...(showSaldo
+        ? ([
+            {
+              id: "saldo",
+              header: "Saldo",
+              cell: ({ row }) => (
+                <span className="tnum font-semibold">
+                  {fmtQty(saldoById.get(row.original.id) ?? 0)}
+                </span>
+              ),
+            },
+          ] as ColumnDef<LedgerRow>[])
+        : []),
       {
         accessorKey: "movement_type",
         header: "Jenis",
@@ -202,7 +238,7 @@ export function LedgerClient({
         cell: ({ row }) => <KoreksiButton row={row.original} />,
       },
     ],
-    []
+    [showSaldo, saldoById]
   );
 
   return (
@@ -238,7 +274,15 @@ export function LedgerClient({
               <b className="font-mono">{fmtDelta(filteredSum)}</b>
             </span>
             <span className="text-xs text-muted-foreground">
-              Baris-baris di bawah adalah pergerakan pembentuk angka tersebut.
+              {showSaldo ? (
+                <>
+                  Kolom <b>Saldo</b> = saldo berjalan setelah tiap entri —
+                  baris teratas adalah stok saat ini, hasil penjumlahan
+                  seluruh baris di bawahnya.
+                </>
+              ) : (
+                "Baris-baris di bawah adalah pergerakan pembentuk angka tersebut."
+              )}
             </span>
           </CardContent>
         </Card>
