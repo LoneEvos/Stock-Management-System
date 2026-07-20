@@ -31,6 +31,7 @@ import {
   Menu,
   PackageSearch,
   RotateCcw,
+  Search,
   ShoppingCart,
   Timer,
 } from "lucide-react";
@@ -65,8 +66,11 @@ const NAV = [
       { href: "/pesanan", label: "Pesanan", icon: ShoppingCart },
       { href: "/retur", label: "Retur", icon: RotateCcw },
       { href: "/simulator", label: "Simulasi", icon: FlaskConical },
-      { href: "/impor", label: "Impor Data", icon: FileUp },
     ],
+  },
+  {
+    group: "Data",
+    items: [{ href: "/impor", label: "Impor Data", icon: FileUp }],
   },
 ];
 
@@ -210,6 +214,17 @@ export function TopBar({ anomalyCount }: { anomalyCount: number }) {
     <header className="sticky top-0 z-20 hidden h-[60px] items-center gap-4 border-b border-border bg-card px-6 lg:flex">
       <p className="text-[13px] text-muted-foreground">{today} · Gudang Pusat</p>
       <div className="flex-1" />
+      <button
+        type="button"
+        onClick={() => window.dispatchEvent(new Event("cmdk-open"))}
+        className="flex h-[38px] w-60 items-center gap-2 rounded-[9px] border border-border bg-secondary px-3 text-[13px] text-muted-foreground transition-colors hover:bg-muted"
+      >
+        <Search className="size-4" />
+        <span className="flex-1 text-left">Cari produk / halaman…</span>
+        <kbd className="rounded border bg-card px-1.5 py-0.5 text-[10px] font-semibold">
+          Ctrl K
+        </kbd>
+      </button>
       <Button
         size="sm"
         className="h-[38px] gap-2 rounded-[9px] px-4 text-[13px] font-semibold"
@@ -239,6 +254,33 @@ export function TopBar({ anomalyCount }: { anomalyCount: number }) {
         )}
       </Link>
     </header>
+  );
+}
+
+/** Pemeriksaan harian dari sheet mobile — paritas dengan topbar desktop. */
+function MobileDailyCheck({ onDone }: { onDone: () => void }) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  return (
+    <div className="border-t border-sidebar-border px-3.5 py-3">
+      <Button
+        size="sm"
+        className="w-full"
+        disabled={pending}
+        onClick={() =>
+          startTransition(async () => {
+            const res = await runChecksNow();
+            if (res.ok) toast.success(res.message);
+            else toast.error(res.message);
+            router.refresh();
+            onDone();
+          })
+        }
+      >
+        <Timer className="size-4" />
+        {pending ? "Memeriksa…" : "Jalankan Pemeriksaan Harian"}
+      </Button>
+    </div>
   );
 }
 
@@ -273,6 +315,7 @@ export function MobileNav({
               onNavigate={() => setOpen(false)}
             />
           </div>
+          <MobileDailyCheck onDone={() => setOpen(false)} />
           <UserFooter userEmail={userEmail} />
         </SheetContent>
       </Sheet>
@@ -282,6 +325,14 @@ export function MobileNav({
         </div>
         <span className="text-sm font-bold">Rekonsiliasi Stok</span>
       </div>
+      <button
+        type="button"
+        aria-label="Cari"
+        onClick={() => window.dispatchEvent(new Event("cmdk-open"))}
+        className="flex size-9 items-center justify-center rounded-lg border border-border bg-secondary"
+      >
+        <Search className="size-4 text-secondary-foreground" />
+      </button>
       <Link
         href="/anomali"
         title="Anomali terbuka"

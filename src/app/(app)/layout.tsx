@@ -1,5 +1,9 @@
 import { redirect } from "next/navigation";
 import { AppSidebar, MobileNav, TopBar } from "@/components/app-nav";
+import {
+  CommandPalette,
+  type PaletteProduct,
+} from "@/components/command-palette";
 import { createSupabaseServer } from "@/lib/supabase/server";
 import { sql } from "@/lib/db";
 
@@ -15,12 +19,16 @@ export default async function AppLayout({
   if (!user) redirect("/login");
 
   // Badge anomali di sidebar + lonceng topbar (desain StokTrace).
-  const [{ n: anomalyCount }] = await sql`
-    select count(*)::int as n from anomalies where status <> 'RESOLVED'
-  `;
+  const [[{ n: anomalyCount }], paletteProducts] = await Promise.all([
+    sql`select count(*)::int as n from anomalies where status <> 'RESOLVED'`,
+    sql`select id, sku, name from products where is_active order by name`,
+  ]);
 
   return (
     <div className="min-h-dvh bg-background lg:min-h-screen">
+      <CommandPalette
+        products={JSON.parse(JSON.stringify(paletteProducts)) as PaletteProduct[]}
+      />
       <AppSidebar
         userEmail={user.email ?? ""}
         anomalyCount={anomalyCount as number}
