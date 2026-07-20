@@ -71,6 +71,26 @@ export async function simNewOrder(
   return res;
 }
 
+/** Order dengan produk & qty pilihan operator (form "Buat Order"). */
+export async function simNewOrderCustom(
+  channel: MarketplaceChannel,
+  listing_sku: string,
+  qty: number
+): Promise<IngestResult> {
+  const operator = await requireOperator();
+  if (!listing_sku) return { ok: false, message: "Pilih produk dulu." };
+  const q = Math.floor(Number(qty));
+  if (!Number.isFinite(q) || q <= 0)
+    return { ok: false, message: "Qty harus angka positif." };
+  const res = await ingestEvent(
+    orderCreated(channel, [{ listing_sku, qty: q }]),
+    "simulator",
+    operator
+  );
+  refresh();
+  return res;
+}
+
 export async function simShip(
   channel: MarketplaceChannel,
   marketplaceOrderId: string
@@ -233,6 +253,9 @@ export async function listSimOrders() {
   const rows = await sql`
     select o.id, o.marketplace_order_id, o.channel, o.status, o.created_at,
       (select coalesce(sum(oi.qty),0)::int from order_items oi where oi.order_id = o.id) as total_qty,
+      (select string_agg(p.name || ' ×' || oi.qty, ', ' order by p.name)
+         from order_items oi join products p on p.id = oi.product_id
+         where oi.order_id = o.id) as items_label,
       exists(select 1 from returns r where r.order_id = o.id and r.status = 'IN_TRANSIT_BACK') as has_return_in_transit
     from orders o
     order by o.created_at desc
@@ -245,6 +268,7 @@ export async function listSimOrders() {
     status: string;
     created_at: string;
     total_qty: number;
+    items_label: string | null;
     has_return_in_transit: boolean;
   }[];
 }
