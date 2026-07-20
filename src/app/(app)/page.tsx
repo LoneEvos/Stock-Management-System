@@ -184,7 +184,7 @@ export default async function DashboardPage() {
           </Card>
         </Link>
 
-        <Link href="/retur">
+        <Link href="/batch">
           <Card className="h-full gap-2 p-4 transition-all hover:border-[#d3d7dc] hover:shadow-[0_4px_14px_rgba(15,23,42,.05)]">
             <span className="flex size-[30px] items-center justify-center rounded-lg bg-red-100">
               <Boxes className="size-4 text-red-600" />
@@ -319,7 +319,15 @@ export default async function DashboardPage() {
                       <TableCell className="text-xs text-muted-foreground">
                         {fmtDateTime(l.created_at)}
                       </TableCell>
-                      <TableCell className="text-sm">{l.product_name}</TableCell>
+                      <TableCell className="text-sm">
+                        <Link
+                          href={`/ledger?product=${l.product_id}`}
+                          title="Telusuri di buku besar — dengan saldo berjalan"
+                          className="font-medium underline-offset-2 hover:text-primary hover:underline"
+                        >
+                          {l.product_name}
+                        </Link>
+                      </TableCell>
                       <TableCell
                         className={`text-right font-mono font-bold ${l.qty_delta > 0 ? "text-emerald-600" : "text-destructive"}`}
                       >

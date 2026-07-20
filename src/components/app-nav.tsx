@@ -55,7 +55,7 @@ const NAV = [
     group: "Pergerakan",
     items: [
       { href: "/masuk", label: "Barang Masuk", icon: ArrowDownToLine },
-      { href: "/keluar", label: "Keluar Manual", icon: ArrowUpFromLine },
+      { href: "/keluar", label: "Barang Keluar", icon: ArrowUpFromLine },
       { href: "/opname", label: "Stok Opname", icon: ClipboardCheck },
     ],
   },
@@ -64,7 +64,7 @@ const NAV = [
     items: [
       { href: "/pesanan", label: "Pesanan", icon: ShoppingCart },
       { href: "/retur", label: "Retur", icon: RotateCcw },
-      { href: "/simulator", label: "Simulator", icon: FlaskConical },
+      { href: "/simulator", label: "Simulasi", icon: FlaskConical },
       { href: "/impor", label: "Impor Data", icon: FileUp },
     ],
   },
